@@ -14,8 +14,16 @@ import * as path from 'node:path';
 import { ASSETS_DIR, BINARY, GO_DIR, TARGETS, Target, sha256, sha256Path, zipPath } from './layers';
 import { buildZip } from './zip';
 
+/**
+ * The toolchain version, e.g. "go1.26.4".
+ *
+ * Deliberately `go env GOVERSION` and not `go version`: the latter appends the
+ * host OS and architecture, so a Windows and a Linux build of byte-identical
+ * cross-compiled binaries would still disagree here and trip the CI staleness
+ * check.
+ */
 function goVersion(): string {
-  return execFileSync('go', ['version'], { encoding: 'utf8' }).trim();
+  return execFileSync('go', ['env', 'GOVERSION'], { encoding: 'utf8' }).trim();
 }
 
 function compile(target: Target): Buffer {

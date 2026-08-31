@@ -33,7 +33,11 @@ describe("layer assets", () => {
       fs.readFileSync(path.join(assetsDir, "BUILDINFO.json"), "utf8"),
     );
 
-    expect(info.goVersion).toMatch(/^go version go/);
+    // Bare toolchain version, with no host OS/arch suffix - otherwise an
+    // identical set of cross-compiled binaries would look stale to CI when
+    // rebuilt on another platform.
+    expect(info.goVersion).toMatch(/^go\d+\.\d+/);
+    expect(info.goVersion).not.toMatch(/windows|linux|darwin/);
     expect(info.targets).toEqual(["arm64", "x86_64"]);
     expect(info.extensionSourceSha).toMatch(/^[0-9a-f]{64}$/);
     // No build timestamp: it would change on every run and make the CI
