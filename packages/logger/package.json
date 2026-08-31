@@ -1,8 +1,15 @@
 {
   "name": "@jaggr2/log-to-s3-logger",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Zero-dependency structured JSON logger for AWS Lambda, designed for the @jaggr2/cdk-log-to-s3 extension.",
-  "keywords": ["aws", "lambda", "logging", "structured-logging", "json", "parquet"],
+  "keywords": [
+    "aws",
+    "lambda",
+    "logging",
+    "structured-logging",
+    "json",
+    "parquet"
+  ],
   "license": "MIT",
   "author": "Roger Jaggi <roger.jaggi@gmail.com>",
   "repository": {
@@ -13,9 +20,16 @@
   "homepage": "https://github.com/jaggr2/cdk-log-to-s3/tree/main/packages/logger",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
-  "files": ["lib", "README.md"],
-  "engines": { "node": ">=18" },
-  "publishConfig": { "access": "public" },
+  "files": [
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "jest",
