@@ -166,7 +166,14 @@ layersWf.addJob("build-layers", {
     { uses: "actions/checkout@v4" },
     {
       uses: "actions/setup-go@v5",
-      with: { "go-version-file": "extension-go/go.mod", cache: true },
+      with: {
+        // .go-version, not go.mod: setup-go reads go.mod's `go` directive
+        // (the language floor) and ignores the `toolchain` line, so it would
+        // install a different compiler than the one the build actually uses.
+        "go-version-file": ".go-version",
+        cache: true,
+        "cache-dependency-path": "extension-go/go.sum",
+      },
     },
     { uses: "actions/setup-node@v4", with: { "node-version": "20.x" } },
     {

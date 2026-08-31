@@ -27,8 +27,9 @@ jobs:
       - id: auto_5d1021cd
         uses: actions/setup-go@v5
         with:
-          go-version-file: extension-go/go.mod
+          go-version-file: .go-version
           cache: true
+          cache-dependency-path: extension-go/go.sum
       - id: auto_e5877e7f
         uses: actions/setup-node@v4
         with:
