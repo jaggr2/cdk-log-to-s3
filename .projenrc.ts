@@ -31,7 +31,11 @@ const project = new awscdk.AwsCdkConstructLibrary({
   constructsVersion: "10.3.0",
   jsiiVersion: "~6.0.0",
   minNodeVersion: "20.0.0",
-  workflowNodeVersion: "20.x",
+  // 24.x, not 20: Node 20 ships npm 10, which has no trusted-publishing
+  // support and fails the OIDC publish with a bare ENEEDAUTH. Node 24 ships
+  // npm 11.x, past the 11.5.1 floor. minNodeVersion below is the consumer-
+  // facing engine floor and is a separate concern.
+  workflowNodeVersion: "24.x",
   packageManager: javascript.NodePackageManager.NPM,
 
   releaseToNpm: true,
@@ -175,7 +179,10 @@ layersWf.addJob("build-layers", {
         "cache-dependency-path": "extension-go/go.sum",
       },
     },
-    { uses: "actions/setup-node@v4", with: { "node-version": "20.x" } },
+    // 24.x so the zip writer runs on the same Node (and therefore the same
+    // zlib) as a typical dev machine; the byte-for-byte staleness check
+    // depends on the deflate output matching.
+    { uses: "actions/setup-node@v4", with: { "node-version": "24.x" } },
     {
       name: "go vet + test",
       run: "cd extension-go && go vet ./... && go test -race ./...",
