@@ -1,0 +1,77 @@
+{
+  "//": "Shared fixtures for the wire contract between @jaggr2/log-to-s3-logger and the Go extension. The logger test asserts it still emits `line` for every case that has an `emit` block; the Go parser test asserts it still reads `line` into `expect`. Editing one side without the other breaks a test instead of silently producing a table full of nulls. See docs/CONTRACT.md.",
+  "cases": [
+    {
+      "name": "info with context",
+      "emit": {
+        "method": "info",
+        "source": "SyncProcessor",
+        "correlationId": "cid-1",
+        "message": "Events synced",
+        "context": { "count": 5 }
+      },
+      "line": "{\"__log_level\":\"INFO\",\"__source\":\"SyncProcessor\",\"__correlation_id\":\"cid-1\",\"message\":\"Events synced\",\"context\":{\"count\":5}}",
+      "expect": {
+        "level": "INFO",
+        "source": "SyncProcessor",
+        "correlationId": "cid-1",
+        "message": "Events synced",
+        "context": "{\"count\":5}",
+        "stackTrace": null,
+        "caller": null
+      }
+    },
+    {
+      "name": "warn without context",
+      "emit": {
+        "method": "warn",
+        "source": "Api",
+        "correlationId": "",
+        "message": "slow response"
+      },
+      "line": "{\"__log_level\":\"WARN\",\"__source\":\"Api\",\"__correlation_id\":\"\",\"message\":\"slow response\"}",
+      "expect": {
+        "level": "WARN",
+        "source": "Api",
+        "correlationId": "",
+        "message": "slow response",
+        "context": null,
+        "stackTrace": null,
+        "caller": null
+      }
+    },
+    {
+      "name": "debug with nested context",
+      "emit": {
+        "method": "debug",
+        "source": "Worker",
+        "correlationId": "cid-2",
+        "message": "tick",
+        "context": { "attempt": 2, "nested": { "a": [1, 2] } }
+      },
+      "line": "{\"__log_level\":\"DEBUG\",\"__source\":\"Worker\",\"__correlation_id\":\"cid-2\",\"message\":\"tick\",\"context\":{\"attempt\":2,\"nested\":{\"a\":[1,2]}}}",
+      "expect": {
+        "level": "DEBUG",
+        "source": "Worker",
+        "correlationId": "cid-2",
+        "message": "tick",
+        "context": "{\"attempt\":2,\"nested\":{\"a\":[1,2]}}",
+        "stackTrace": null,
+        "caller": null
+      }
+    },
+    {
+      "name": "error with stack trace and caller",
+      "line": "{\"__log_level\":\"ERROR\",\"__source\":\"Api\",\"__correlation_id\":\"cid-3\",\"__caller\":\"src/lib/sync.ts:142:11\",\"message\":\"failed\",\"context\":{\"error\":{\"name\":\"TypeError\",\"message\":\"bad input\"}},\"stackTrace\":\"TypeError: bad input\\n    at handler (index.js:1:1)\"}",
+      "expect": {
+        "level": "ERROR",
+        "source": "Api",
+        "correlationId": "cid-3",
+        "message": "failed",
+        "context": "{\"error\":{\"name\":\"TypeError\",\"message\":\"bad input\"}}",
+        "stackTrace": "TypeError: bad input\n    at handler (index.js:1:1)",
+        "caller": "src/lib/sync.ts:142:11"
+      }
+    }
+  ]
+}
