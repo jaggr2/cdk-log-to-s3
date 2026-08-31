@@ -22,24 +22,35 @@ func NormalizePrefix(p string) string {
 	return p + "/"
 }
 
-// BuildKey lays out one Parquet file in a fully Hive-partitioned path.
+// PartitionPath returns the directory a given day's objects live in, e.g.
+// "logs/2026/08/31/". It is the value the Athena `dt` partition column takes,
+// prefixed, and the unit the compactor operates on.
+func PartitionPath(prefix string, day time.Time) string {
+	day = day.UTC()
+	return fmt.Sprintf("%s%04d/%02d/%02d/",
+		NormalizePrefix(prefix), day.Year(), int(day.Month()), day.Day())
+}
+
+// BuildKey lays out one Parquet file inside its day partition.
 //
-// Every directory level below the prefix is a partition key and nothing else.
-// That constraint comes from Athena partition projection: storage.location.template
-// must contain a placeholder for every partition column, and static or dynamic
-// segments below the last placeholder cannot be expressed. The function name
-// therefore lives in the file name (and in the function_name column), not in a
-// directory of its own.
+// Every directory level below the prefix belongs to the partition and nothing
+// else. That constraint comes from Athena partition projection:
+// storage.location.template must contain a placeholder for every partition
+// column, and static or dynamic segments below the last placeholder cannot be
+// expressed. The function name therefore lives in the file name (and in the
+// function_name column), not in a directory of its own.
+//
+// The layout is yyyy/MM/dd, matching projection.dt.format. Day granularity
+// rather than hourly keeps the projected partition count near 730 over a
+// two-year window instead of tens of thousands.
 //
 // The random suffix is always present. Without it, two flushes within one
 // invocation - the interval ticker, the size threshold and the runtimeDone
 // flush can all fire for the same request - would produce identical keys and
 // the second would silently overwrite the first.
 func BuildKey(prefix string, now time.Time, functionName, correlationID string) string {
-	now = now.UTC()
-	return fmt.Sprintf("%syear=%04d/month=%02d/day=%02d/hour=%02d/%s-%s-%s.parquet",
-		NormalizePrefix(prefix),
-		now.Year(), int(now.Month()), now.Day(), now.Hour(),
+	return fmt.Sprintf("%s%s-%s-%s.parquet",
+		PartitionPath(prefix, now),
 		sanitize(functionName, "unknown"),
 		sanitize(correlationID, "none"),
 		randomSuffix(),

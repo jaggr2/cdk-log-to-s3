@@ -1779,7 +1779,7 @@ const logAnalyticsFromExtensionOptions: LogAnalyticsFromExtensionOptions = { ...
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.databaseName">databaseName</a></code> | <code>string</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.createDatabase">createDatabase</a></code> | <code>boolean</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.createWorkgroup">createWorkgroup</a></code> | <code>boolean</code> | *No description.* |
-| <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.projectionYearRange">projectionYearRange</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange">ProjectionYearRange</a></code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.projectionWindow">projectionWindow</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.removalPolicy">removalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.resultsBucket">resultsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.resultsExpiration">resultsExpiration</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
@@ -1820,14 +1820,14 @@ public readonly createWorkgroup: boolean;
 
 ---
 
-##### `projectionYearRange`<sup>Optional</sup> <a name="projectionYearRange" id="@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.projectionYearRange"></a>
+##### `projectionWindow`<sup>Optional</sup> <a name="projectionWindow" id="@jaggr2/cdk-log-to-s3.LogAnalyticsFromExtensionOptions.property.projectionWindow"></a>
 
 ```typescript
-public readonly projectionYearRange: ProjectionYearRange;
+public readonly projectionWindow: Duration;
 ```
 
-- *Type:* <a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange">ProjectionYearRange</a>
-- *Default:* the current year through the current year plus five
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.days(730)
 
 ---
 
@@ -1905,7 +1905,7 @@ const logAnalyticsProps: LogAnalyticsProps = { ... }
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.createDatabase">createDatabase</a></code> | <code>boolean</code> | Create the Glue database. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.createWorkgroup">createWorkgroup</a></code> | <code>boolean</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | Must equal LogToS3ExtensionProps.keyPrefix. A mismatch produces a table that returns no rows, with no error from Athena or CloudFormation. Use LogAnalytics.fromExtension() to make that impossible. |
-| <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.projectionYearRange">projectionYearRange</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange">ProjectionYearRange</a></code> | Years the projection covers. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.projectionWindow">projectionWindow</a></code> | <code>aws-cdk-lib.Duration</code> | How far back the partition projection reaches, as a sliding window ending at today. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.removalPolicy">removalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | *No description.* |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.resultsBucket">resultsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket for Athena query results. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.resultsExpiration">resultsExpiration</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
@@ -1981,20 +1981,25 @@ Must equal LogToS3ExtensionProps.keyPrefix. A mismatch produces a table that ret
 
 ---
 
-##### `projectionYearRange`<sup>Optional</sup> <a name="projectionYearRange" id="@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.projectionYearRange"></a>
+##### `projectionWindow`<sup>Optional</sup> <a name="projectionWindow" id="@jaggr2/cdk-log-to-s3.LogAnalyticsProps.property.projectionWindow"></a>
 
 ```typescript
-public readonly projectionYearRange: ProjectionYearRange;
+public readonly projectionWindow: Duration;
 ```
 
-- *Type:* <a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange">ProjectionYearRange</a>
-- *Default:* the current year through the current year plus five
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.days(730)
 
-Years the projection covers.
+How far back the partition projection reaches, as a sliding window ending at today.
 
-Keep this tight. Projection enumerates every combination, so the partition
-count is years x 12 x 31 x 24; a query without a year/month predicate has
-to consider all of them.
+Projection enumerates every value in the window, so this is the partition
+count: one per day. Because the window slides it stays bounded instead of
+growing forever.
+
+It must be wider than how long you keep the data. Objects older than the
+window are still in S3 but Athena cannot generate a partition for them, so
+they become unqueryable - silently, with no error. The LogBucket default
+expires objects after 180 days, well inside this default.
 
 ---
 
@@ -3001,47 +3006,6 @@ Port the extension listens on for the Telemetry API.
 
 Change it only if it
 collides with something else in the sandbox.
-
----
-
-### ProjectionYearRange <a name="ProjectionYearRange" id="@jaggr2/cdk-log-to-s3.ProjectionYearRange"></a>
-
-Inclusive range of years the partition projection covers.
-
-#### Initializer <a name="Initializer" id="@jaggr2/cdk-log-to-s3.ProjectionYearRange.Initializer"></a>
-
-```typescript
-import { ProjectionYearRange } from '@jaggr2/cdk-log-to-s3'
-
-const projectionYearRange: ProjectionYearRange = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange.property.end">end</a></code> | <code>number</code> | *No description.* |
-| <code><a href="#@jaggr2/cdk-log-to-s3.ProjectionYearRange.property.start">start</a></code> | <code>number</code> | *No description.* |
-
----
-
-##### `end`<sup>Required</sup> <a name="end" id="@jaggr2/cdk-log-to-s3.ProjectionYearRange.property.end"></a>
-
-```typescript
-public readonly end: number;
-```
-
-- *Type:* number
-
----
-
-##### `start`<sup>Required</sup> <a name="start" id="@jaggr2/cdk-log-to-s3.ProjectionYearRange.property.start"></a>
-
-```typescript
-public readonly start: number;
-```
-
-- *Type:* number
 
 ---
 

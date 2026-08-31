@@ -21,8 +21,8 @@ const STACK_NAME = process.env.INTEG_STACK_NAME ?? 'LogToS3Integ';
 const OBJECT_TIMEOUT_MS = 90_000;
 const QUERY_TIMEOUT_MS = 120_000;
 
-/** Keys must be flat inside the hour partition, or projection cannot see them. */
-const KEY_PATTERN = /^logs\/year=\d{4}\/month=\d{2}\/day=\d{2}\/hour=\d{2}\/[A-Za-z0-9._-]+\.parquet$/;
+/** Keys must be flat inside the day partition, or projection cannot see them. */
+const KEY_PATTERN = /^logs\/\d{4}\/\d{2}\/\d{2}\/[A-Za-z0-9._-]+\.parquet$/;
 
 const cfn = new CloudFormationClient({});
 const lambda = new LambdaClient({});
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   check(keys.length > 0, 'at least one object was written', `prefix ${prefix}`);
   if (keys.length > 0) {
     const bad = keys.filter((k) => !KEY_PATTERN.test(k));
-    check(bad.length === 0, 'every key is flat inside its hour partition', bad.slice(0, 3).join('\n        '));
+    check(bad.length === 0, 'every key is flat inside its day partition', bad.slice(0, 3).join('\n        '));
     check(
       !keys.some((k) => k.includes('/extension/')),
       'no extension/ segment below the partitions',
@@ -139,10 +139,11 @@ async function main(): Promise<void> {
   const y = now.getUTCFullYear();
   const m = String(now.getUTCMonth() + 1).padStart(2, '0');
   const d = String(now.getUTCDate()).padStart(2, '0');
+  const dt = `${y}/${m}/${d}`;
 
   const sql = `SELECT level, source, message, request_id, correlation_id, context, stack_trace, caller
     FROM "${out.DatabaseName}"."${out.TableName}"
-    WHERE year = '${y}' AND month = '${m}' AND day = '${d}'
+    WHERE dt = '${dt}'
       AND message LIKE '%${marker}%'
     LIMIT 50`;
 

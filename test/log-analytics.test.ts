@@ -1,4 +1,4 @@
-import { App, Stack } from "aws-cdk-lib";
+import { App, Duration, Stack } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { LogAnalytics, LogBucket, LogToS3Extension } from "../src";
@@ -41,13 +41,10 @@ describe("LogAnalytics", () => {
     // Athena requires a placeholder for every partition column, and the
     // template must end in a slash. This is the single most breakage-prone
     // value in the library.
-    expect(rendered).toContain(
-      "year=${year}/month=${month}/day=${day}/hour=${hour}/",
-    );
-    expect(rendered).toContain("logs/");
-    for (const col of ["year", "month", "day", "hour"]) {
-      expect(rendered).toContain("${" + col + "}");
-    }
+    expect(rendered).toContain("logs/${dt}/");
+    // The old four-column layout must not linger anywhere.
+    expect(rendered).not.toContain("year=");
+    expect(rendered).not.toContain("hour=");
   });
 
   test("declares the full projection configuration", () => {
@@ -55,7 +52,7 @@ describe("LogAnalytics", () => {
     new LogAnalytics(stack, "Analytics", {
       logsBucket: new LogBucket(stack, "Logs"),
       databaseName: "my_logs",
-      projectionYearRange: { start: 2026, end: 2030 },
+      projectionWindow: Duration.days(365),
     });
 
     Template.fromStack(stack).hasResourceProperties("AWS::Glue::Table", {
@@ -66,17 +63,29 @@ describe("LogAnalytics", () => {
           classification: "parquet",
           "parquet.compression": "SNAPPY",
           "projection.enabled": "true",
-          "projection.year.type": "integer",
-          "projection.year.range": "2026,2030",
-          "projection.month.type": "integer",
-          "projection.month.range": "1,12",
-          "projection.month.digits": "2",
-          "projection.day.type": "integer",
-          "projection.day.range": "1,31",
-          "projection.day.digits": "2",
-          "projection.hour.type": "integer",
-          "projection.hour.range": "0,23",
-          "projection.hour.digits": "2",
+          "projection.dt.type": "date",
+          "projection.dt.format": "yyyy/MM/dd",
+          // Sliding, so the partition count stays bounded instead of growing
+          // a partition per day forever.
+          "projection.dt.range": "NOW-365DAYS,NOW",
+          "projection.dt.interval": "1",
+          "projection.dt.interval.unit": "DAYS",
+        }),
+      }),
+    });
+  });
+
+  test("defaults to a two year window", () => {
+    const stack = testStack();
+    new LogAnalytics(stack, "Analytics", {
+      logsBucket: new LogBucket(stack, "Logs"),
+      databaseName: "my_logs",
+    });
+
+    Template.fromStack(stack).hasResourceProperties("AWS::Glue::Table", {
+      TableInput: Match.objectLike({
+        Parameters: Match.objectLike({
+          "projection.dt.range": "NOW-730DAYS,NOW",
         }),
       }),
     });
@@ -98,21 +107,18 @@ describe("LogAnalytics", () => {
     expect(columns.every((c: any) => c.Type === "string")).toBe(true);
   });
 
-  test("partition keys are strings so the zero-padded values round-trip", () => {
+  test("has a single string partition key", () => {
     const stack = testStack();
     new LogAnalytics(stack, "Analytics", {
       logsBucket: new LogBucket(stack, "Logs"),
       databaseName: "my_logs",
     });
 
+    // String, not date: the projected value carries the slashes of the
+    // yyyy/MM/dd path format, which a date column would not round-trip.
     Template.fromStack(stack).hasResourceProperties("AWS::Glue::Table", {
       TableInput: Match.objectLike({
-        PartitionKeys: [
-          { Name: "year", Type: "string" },
-          { Name: "month", Type: "string" },
-          { Name: "day", Type: "string" },
-          { Name: "hour", Type: "string" },
-        ],
+        PartitionKeys: [{ Name: "dt", Type: "string" }],
       }),
     });
   });
@@ -187,16 +193,16 @@ describe("LogAnalytics", () => {
     template.resourceCountIs("AWS::S3::Bucket", 2);
   });
 
-  test("rejects an inverted year range", () => {
+  test("rejects a sub-day projection window", () => {
     const stack = testStack();
     expect(
       () =>
         new LogAnalytics(stack, "Analytics", {
           logsBucket: new LogBucket(stack, "Logs"),
           databaseName: "my_logs",
-          projectionYearRange: { start: 2030, end: 2026 },
+          projectionWindow: Duration.hours(12),
         }),
-    ).toThrow(/must not be before start/);
+    ).toThrow(/at least one day/);
   });
 
   describe("grantQuery", () => {
@@ -270,7 +276,7 @@ describe("LogAnalytics", () => {
 
       // The extension normalises 'custom/place' to 'custom/place/'; the table
       // has to use exactly the same string.
-      expect(rendered).toContain("custom/place/year=${year}");
+      expect(rendered).toContain("custom/place/${dt}/");
       expect(ext.keyPrefix).toBe("custom/place/");
     });
   });

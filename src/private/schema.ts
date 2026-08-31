@@ -33,10 +33,13 @@ export const LOG_COLUMNS: LogColumn[] = [
   { name: "caller", type: "string" },
 ];
 
-/** Hive partition keys, in path order. */
-export const PARTITION_COLUMNS: LogColumn[] = [
-  { name: "year", type: "string" },
-  { name: "month", type: "string" },
-  { name: "day", type: "string" },
-  { name: "hour", type: "string" },
-];
+/**
+ * Partition keys, in path order.
+ *
+ * A single date column rather than year/month/day/hour: partition projection
+ * enumerates every combination in range, and four dimensions produced tens of
+ * thousands of partitions that grew without bound. One sliding date column is
+ * ~730 partitions and stays that way. The value carries the path separators of
+ * the yyyy/MM/dd format, so it is a string, not a date.
+ */
+export const PARTITION_COLUMNS: LogColumn[] = [{ name: "dt", type: "string" }];

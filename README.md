@@ -69,22 +69,31 @@ in the table as a plain-text row.
 ```sql
 SELECT from_iso8601_timestamp(timestamp) AS ts, level, source, message, correlation_id
 FROM my_app_logs.app_logs
-WHERE year = '2026' AND month = '08' AND day = '31'
+WHERE dt = '2026/08/31'
   AND level = 'ERROR'
 ORDER BY ts DESC
 LIMIT 100;
 ```
 
-**Always filter on the partition columns.** Projection enumerates every
-combination in range, so an unfiltered query makes Athena consider
-`years x 12 x 31 x 24` partitions. Keep `projectionYearRange` tight.
+`dt` is the partition column, formatted `yyyy/MM/dd`. It is zero-padded and
+fixed width, so it sorts lexicographically in the same order it sorts
+chronologically - which makes range predicates correct, not just convenient:
+
+```sql
+WHERE dt BETWEEN '2026/08/01' AND '2026/08/31'
+```
+
+**Always filter on `dt`.** Projection enumerates every day in the window, so an
+unfiltered query makes Athena consider all of them (~730 at the default
+two-year window).
 
 `context` is stored as raw JSON text:
 
 ```sql
 SELECT json_extract_scalar(context, '$.count') AS count, message
 FROM my_app_logs.app_logs
-WHERE year = '2026' AND month = '08' AND source = 'SyncProcessor';
+WHERE dt BETWEEN '2026/08/01' AND '2026/08/31'
+  AND source = 'SyncProcessor';
 ```
 
 ## Schema
@@ -102,7 +111,10 @@ WHERE year = '2026' AND month = '08' AND source = 'SyncProcessor';
 | `stack_trace` | |
 | `caller` | From `__caller` |
 
-Partitioned by `year` / `month` / `day` / `hour`, all strings.
+Partitioned by a single `dt` string column, formatted `yyyy/MM/dd`. One sliding
+date column rather than four numeric ones: partition projection enumerates
+every combination in range, and `year`/`month`/`day`/`hour` produced tens of
+thousands of partitions that grew without bound.
 
 ## Constructs
 
@@ -148,6 +160,13 @@ A Glue database and table plus an Athena workgroup and results bucket.
 Prefer `LogAnalytics.fromExtension(...)`, which takes the bucket and key prefix
 from the extension. A prefix mismatch produces a table that returns no rows,
 with no error from Athena or CloudFormation.
+
+`projectionWindow` (default `Duration.days(730)`) is a **sliding** window ending
+today, so the partition count stays bounded instead of growing forever. It must
+stay wider than however long you keep the data: objects older than the window
+are still in S3 but Athena cannot generate a partition for them, so they become
+unqueryable with no error anywhere. The `LogBucket` default expires objects
+after 180 days, well inside it.
 
 Set `createDatabase: false` when the database already exists -
 `AWS::Glue::Database` fails if it does.

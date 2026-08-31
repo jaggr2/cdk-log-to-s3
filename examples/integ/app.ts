@@ -59,7 +59,7 @@ class IntegStack extends Stack {
       databaseName: 'log_to_s3_integ',
       tableName: 'app_logs',
       removalPolicy: RemovalPolicy.DESTROY,
-      projectionYearRange: { start: new Date().getUTCFullYear(), end: new Date().getUTCFullYear() + 1 },
+      projectionWindow: Duration.days(7),
     });
 
     new CfnOutput(this, 'FunctionName', { value: fn.functionName });

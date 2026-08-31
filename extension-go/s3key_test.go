@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// keyRe is the layout Athena partition projection depends on: the prefix, four
-// Hive partition directories, then the file. No other directory level may
-// appear, which is why the function name lives in the file name.
+// keyRe is the layout Athena partition projection depends on: the prefix, the
+// yyyy/MM/dd partition directories, then the file. No other directory level
+// may appear, which is why the function name lives in the file name.
 var keyRe = regexp.MustCompile(
-	`^(?:[^/]+/)*year=\d{4}/month=\d{2}/day=\d{2}/hour=\d{2}/[A-Za-z0-9._-]+\.parquet$`)
+	`^(?:[^/=]+/)*\d{4}/\d{2}/\d{2}/[A-Za-z0-9._-]+\.parquet$`)
 
 func TestNormalizePrefix(t *testing.T) {
 	cases := map[string]string{
@@ -38,13 +38,50 @@ func TestBuildKeyLayout(t *testing.T) {
 	if !keyRe.MatchString(key) {
 		t.Fatalf("key %q does not match the projection-compatible layout", key)
 	}
-	wantDir := "logs/year=2026/month=08/day=05/hour=09/"
+	wantDir := "logs/2026/08/05/"
 	if key[:len(wantDir)] != wantDir {
 		t.Errorf("key = %q, want it to start with %q", key, wantDir)
 	}
-	// Zero padding is what makes projection.<col>.digits=2 line up.
-	if want := "month=08"; !contains(key, want) {
+	// Zero padding is what lets the yyyy/MM/dd values sort lexicographically
+	// in the same order they sort chronologically.
+	if want := "/08/05/"; !contains(key, want) {
 		t.Errorf("key = %q, want zero-padded %q", key, want)
+	}
+}
+
+// The partition value is what Athena projects into ${dt}; the extension and
+// the table must agree on it exactly.
+func TestPartitionPath(t *testing.T) {
+	day := time.Date(2026, 1, 2, 23, 59, 0, 0, time.UTC)
+
+	if got, want := PartitionPath("logs/", day), "logs/2026/01/02/"; got != want {
+		t.Errorf("PartitionPath = %q, want %q", got, want)
+	}
+	if got, want := PartitionPath("", day), "2026/01/02/"; got != want {
+		t.Errorf("PartitionPath = %q, want %q", got, want)
+	}
+	if got, want := PartitionPath("/nested/dir", day), "nested/dir/2026/01/02/"; got != want {
+		t.Errorf("PartitionPath = %q, want %q", got, want)
+	}
+}
+
+// Keys within a partition sort lexicographically in date order, which is what
+// makes range predicates on the dt column correct rather than merely handy.
+func TestPartitionPathsSortChronologically(t *testing.T) {
+	days := []time.Time{
+		time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	prev := ""
+	for _, d := range days {
+		p := PartitionPath("logs/", d)
+		if prev != "" && !(prev < p) {
+			t.Errorf("%q should sort before %q", prev, p)
+		}
+		prev = p
 	}
 }
 
@@ -53,12 +90,12 @@ func TestBuildKeyHasNoExtraDirectoryLevels(t *testing.T) {
 	key := BuildKey("logs/", now, "my-fn", "cid-1")
 
 	// The pre-extraction layout inserted "extension/<functionName>/" below the
-	// hour partition, which cannot be expressed as a location template.
+	// partitions, which cannot be expressed as a location template.
 	if contains(key, "/extension/") {
 		t.Errorf("key = %q still contains an extension/ segment", key)
 	}
-	if count(key, "/") != 5 {
-		t.Errorf("key = %q has %d slashes, want 5 (prefix + 4 partitions)", key, count(key, "/"))
+	if count(key, "/") != 4 {
+		t.Errorf("key = %q has %d slashes, want 4 (prefix + yyyy/MM/dd)", key, count(key, "/"))
 	}
 }
 
@@ -66,8 +103,8 @@ func TestBuildKeyEmptyPrefix(t *testing.T) {
 	now := time.Date(2026, 12, 31, 23, 0, 0, 0, time.UTC)
 	key := BuildKey("", now, "fn", "cid")
 
-	if key[:5] != "year=" {
-		t.Errorf("key = %q, want it to start at the year partition", key)
+	if key[:5] != "2026/" {
+		t.Errorf("key = %q, want it to start at the year segment", key)
 	}
 	if !keyRe.MatchString(key) {
 		t.Errorf("key %q does not match the expected layout", key)
@@ -79,7 +116,7 @@ func TestBuildKeyConvertsToUTC(t *testing.T) {
 	local := time.Date(2026, 3, 1, 2, 0, 0, 0, zone) // 2026-02-28T21:00Z
 
 	key := BuildKey("logs/", local, "fn", "cid")
-	want := "logs/year=2026/month=02/day=28/hour=21/"
+	want := "logs/2026/02/28/"
 	if key[:len(want)] != want {
 		t.Errorf("key = %q, want it to start with %q", key, want)
 	}

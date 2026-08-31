@@ -8,12 +8,6 @@ import { ILogToS3Extension } from "./log-to-s3-extension";
 import { DEFAULT_KEY_PREFIX, normalizePrefix } from "./private/env";
 import { LOG_COLUMNS, PARTITION_COLUMNS } from "./private/schema";
 
-/** Inclusive range of years the partition projection covers. */
-export interface ProjectionYearRange {
-  readonly start: number;
-  readonly end: number;
-}
-
 export interface LogAnalyticsProps {
   /** Bucket the extension writes to. */
   readonly logsBucket: s3.IBucket;
@@ -47,15 +41,21 @@ export interface LogAnalyticsProps {
   readonly createDatabase?: boolean;
 
   /**
-   * Years the projection covers.
+   * How far back the partition projection reaches, as a sliding window ending
+   * at today.
    *
-   * Keep this tight. Projection enumerates every combination, so the partition
-   * count is years x 12 x 31 x 24; a query without a year/month predicate has
-   * to consider all of them.
+   * Projection enumerates every value in the window, so this is the partition
+   * count: one per day. Because the window slides it stays bounded instead of
+   * growing forever.
    *
-   * @default - the current year through the current year plus five
+   * It must be wider than how long you keep the data. Objects older than the
+   * window are still in S3 but Athena cannot generate a partition for them, so
+   * they become unqueryable - silently, with no error. The LogBucket default
+   * expires objects after 180 days, well inside this default.
+   *
+   * @default Duration.days(730)
    */
-  readonly projectionYearRange?: ProjectionYearRange;
+  readonly projectionWindow?: Duration;
 
   /**
    * @default true
@@ -100,9 +100,9 @@ export interface LogAnalyticsFromExtensionOptions {
   readonly createDatabase?: boolean;
 
   /**
-   * @default - the current year through the current year plus five
+   * @default Duration.days(730)
    */
-  readonly projectionYearRange?: ProjectionYearRange;
+  readonly projectionWindow?: Duration;
 
   /**
    * @default true
@@ -197,22 +197,22 @@ export class LogAnalytics extends Construct {
     }
 
     const location = `s3://${props.logsBucket.bucketName}/${this.keyPrefix}`;
-    // The placeholders below are literal Athena syntax, not TypeScript
-    // interpolation. The template must name every partition column and end
-    // with a slash, which is why the key layout has no other directory levels.
-    const locationTemplate =
-      location + "year=${year}/month=${month}/day=${day}/hour=${hour}/";
+    // ${dt} below is literal Athena syntax, not TypeScript interpolation. The
+    // template must name every partition column and end with a slash, which is
+    // why the key layout has no other directory levels.
+    const locationTemplate = location + "${dt}/";
 
-    const currentYear = new Date().getUTCFullYear();
-    const years = props.projectionYearRange ?? {
-      start: currentYear,
-      end: currentYear + 5,
-    };
-    if (years.end < years.start) {
+    const window = props.projectionWindow ?? Duration.days(730);
+    // Checked in milliseconds: toDays() raises its own error for anything that
+    // is not a whole number of days, which would mask this message. A
+    // non-whole window still fails there, which is correct - the Athena range
+    // is expressed in whole DAYS.
+    if (window.toMilliseconds() < Duration.days(1).toMilliseconds()) {
       throw new Error(
-        `LogAnalytics: projectionYearRange end (${years.end}) must not be before start (${years.start}).`,
+        "LogAnalytics: projectionWindow must be at least one day.",
       );
     }
+    const windowDays = window.toDays();
 
     this.table = new glue.CfnTable(this, "Table", {
       catalogId: stack.account,
@@ -227,21 +227,20 @@ export class LogAnalytics extends Construct {
           "parquet.compression": "SNAPPY",
 
           "projection.enabled": "true",
-          "projection.year.type": "integer",
-          "projection.year.range": `${years.start},${years.end}`,
-          "projection.month.type": "integer",
-          "projection.month.range": "1,12",
-          "projection.month.digits": "2",
-          "projection.day.type": "integer",
-          "projection.day.range": "1,31",
-          "projection.day.digits": "2",
-          "projection.hour.type": "integer",
-          "projection.hour.range": "0,23",
-          "projection.hour.digits": "2",
+          "projection.dt.type": "date",
+          // yyyy/MM/dd sorts lexicographically exactly as it sorts
+          // chronologically, so BETWEEN on the string column is correct and
+          // not merely convenient.
+          "projection.dt.format": "yyyy/MM/dd",
+          // A sliding window rather than a fixed range: it stays bounded
+          // instead of growing a partition per day forever.
+          "projection.dt.range": `NOW-${windowDays}DAYS,NOW`,
+          "projection.dt.interval": "1",
+          "projection.dt.interval.unit": "DAYS",
           "storage.location.template": locationTemplate,
         },
-        // String, not int: the digits setting zero-pads the projected values,
-        // and '05' only round-trips through a string column.
+        // String rather than date: the projected value carries the slashes of
+        // the path format, which a date-typed column would not round-trip.
         partitionKeys: PARTITION_COLUMNS.map((c) => ({
           name: c.name,
           type: c.type,
