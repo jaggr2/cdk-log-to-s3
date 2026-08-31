@@ -18,11 +18,10 @@ jobs:
       - id: auto_e5877e7f
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
-          registry-url: https://registry.npmjs.org
+          node-version: 24.x
       - name: upgrade npm for trusted publishing
         id: upgrade_npm_for_trusted_publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@^11.5.1
       - name: build, test and publish
         id: build_test_and_publish
         run: cd packages/logger && npm install && npm test && npm run build && npm publish --access public --provenance

@@ -203,15 +203,17 @@ loggerWf.addJob("publish", {
     { uses: "actions/checkout@v4" },
     {
       uses: "actions/setup-node@v4",
-      with: {
-        "node-version": "20.x",
-        "registry-url": "https://registry.npmjs.org",
-      },
+      // Deliberately no registry-url: it makes setup-node write an .npmrc
+      // with a placeholder _authToken, and a bogus token pre-empts the OIDC
+      // exchange. npm defaults to registry.npmjs.org anyway.
+      with: { "node-version": "24.x" },
     },
     {
-      // Node 20 ships npm 10; trusted publishing needs npm >= 11.5.1.
+      // Trusted publishing needs npm >= 11.5.1. Pinned to 11.x rather than
+      // @latest, which is now npm 12 and refuses to install on anything below
+      // Node 22.22.
       name: "upgrade npm for trusted publishing",
-      run: "npm install -g npm@latest",
+      run: "npm install -g npm@^11.5.1",
     },
     {
       // No NODE_AUTH_TOKEN. npm exchanges the workflow's OIDC token for
