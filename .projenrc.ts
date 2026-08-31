@@ -1,4 +1,4 @@
-import { awscdk, javascript, JsonFile } from "projen";
+import { awscdk, javascript, JsonFile, ReleasableCommits } from "projen";
 import { JobPermission } from "projen/lib/github/workflows-model";
 
 const project = new awscdk.AwsCdkConstructLibrary({
@@ -40,6 +40,13 @@ const project = new awscdk.AwsCdkConstructLibrary({
 
   releaseToNpm: true,
   npmAccess: javascript.NpmAccess.PUBLIC,
+  // Without this, projen releases on *every* commit, so bumping the logger
+  // republishes the construct library with no content change. The pathspec is
+  // appended to `git log $LATEST_TAG..HEAD --`, so it means "any change except
+  // ones confined to packages/logger".
+  releasableCommits: ReleasableCommits.everyCommit(
+    '. ":(exclude)packages/logger"',
+  ),
   // Tokenless publishing via GitHub OIDC. Must be configured on npmjs.com
   // first, and npm only allows that once the package already exists - hence
   // the one manual publish that bootstraps each package.
@@ -153,13 +160,23 @@ layersWf.on({
     paths: [
       "extension-go/**",
       "scripts/build-layers.ts",
+      "scripts/zip.ts",
       "assets/**",
       ".go-version",
+      ".github/workflows/layers.yml",
     ],
   },
   push: {
     branches: ["main"],
-    paths: ["extension-go/**", "scripts/build-layers.ts", ".go-version"],
+    paths: [
+      "extension-go/**",
+      "scripts/build-layers.ts",
+      "scripts/zip.ts",
+      ".go-version",
+      // The workflow itself, so a change to the build or the pin retriggers it
+      // instead of needing a manual dispatch.
+      ".github/workflows/layers.yml",
+    ],
   },
   workflowDispatch: {},
 });
@@ -167,9 +184,9 @@ layersWf.addJob("build-layers", {
   runsOn: ["ubuntu-latest"],
   permissions: { contents: JobPermission.READ },
   steps: [
-    { uses: "actions/checkout@v4" },
+    { uses: "actions/checkout@v7" },
     {
-      uses: "actions/setup-go@v5",
+      uses: "actions/setup-go@v7",
       with: {
         // .go-version, not go.mod: setup-go reads go.mod's `go` directive
         // (the language floor) and ignores the `toolchain` line, so it would
@@ -182,7 +199,7 @@ layersWf.addJob("build-layers", {
     // 24.x so the zip writer runs on the same Node (and therefore the same
     // zlib) as a typical dev machine; the byte-for-byte staleness check
     // depends on the deflate output matching.
-    { uses: "actions/setup-node@v4", with: { "node-version": "24.x" } },
+    { uses: "actions/setup-node@v7", with: { "node-version": "24.x" } },
     {
       name: "go vet + test",
       run: "cd extension-go && go vet ./... && go test -race ./...",
@@ -207,9 +224,9 @@ loggerWf.addJob("publish", {
     idToken: JobPermission.WRITE,
   },
   steps: [
-    { uses: "actions/checkout@v4" },
+    { uses: "actions/checkout@v7" },
     {
-      uses: "actions/setup-node@v4",
+      uses: "actions/setup-node@v7",
       // Deliberately no registry-url: it makes setup-node write an .npmrc
       // with a placeholder _authToken, and a bogus token pre-empts the OIDC
       // exchange. npm defaults to registry.npmjs.org anyway.

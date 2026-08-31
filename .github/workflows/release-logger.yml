@@ -13,10 +13,10 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - id: auto_c3fe249f
-        uses: actions/checkout@v4
-      - id: auto_e5877e7f
-        uses: actions/setup-node@v4
+      - id: auto_60120a02
+        uses: actions/checkout@v7
+      - id: auto_60fc0a66
+        uses: actions/setup-node@v7
         with:
           node-version: 24.x
       - name: upgrade npm for trusted publishing
