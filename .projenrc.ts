@@ -60,6 +60,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     "@aws-sdk/client-s3",
     "@aws-sdk/client-athena",
     "@aws-sdk/client-lambda",
+    "@aws-sdk/client-cloudformation",
   ],
 
   // The logger package and the integ example are compiled by their own

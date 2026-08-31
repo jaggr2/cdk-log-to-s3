@@ -15,7 +15,12 @@ import {
 } from '@aws-sdk/client-athena';
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
-import { GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import {
+  CopyObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from '@aws-sdk/client-s3';
 
 const STACK_NAME = process.env.INTEG_STACK_NAME ?? 'LogToS3Integ';
 const OBJECT_TIMEOUT_MS = 90_000;
@@ -170,6 +175,77 @@ async function main(): Promise<void> {
       'a non-structured line was kept as plain text',
     );
   }
+
+  // 5. Compaction. Only closed days are compacted, so today's objects are
+  //    copied into yesterday's partition to give the job something to do.
+  console.log('\n5. compact a closed partition');
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yPrefix =
+    `${prefix}${yesterday.getUTCFullYear()}/` +
+    `${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}/` +
+    `${String(yesterday.getUTCDate()).padStart(2, '0')}/`;
+
+  const seeded = keys.slice(0, 4);
+  for (const key of seeded) {
+    await s3.send(
+      new CopyObjectCommand({
+        Bucket: out.LogsBucketName,
+        CopySource: `${out.LogsBucketName}/${key}`,
+        Key: yPrefix + key.slice(key.lastIndexOf('/') + 1),
+      }),
+    );
+  }
+  check(seeded.length >= 2, 'seeded a closed partition to compact', `${seeded.length} objects`);
+
+  const before = await s3.send(
+    new ListObjectsV2Command({ Bucket: out.LogsBucketName, Prefix: yPrefix }),
+  );
+  const beforeCount = (before.Contents ?? []).length;
+
+  const compacted = await lambda.send(
+    new InvokeCommand({ FunctionName: out.CompactionFunctionName, Payload: Buffer.from('{}') }),
+  );
+  check(
+    compacted.StatusCode === 200 && !compacted.FunctionError,
+    'compaction ran without error',
+    compacted.FunctionError,
+  );
+
+  const after = await s3.send(
+    new ListObjectsV2Command({ Bucket: out.LogsBucketName, Prefix: yPrefix }),
+  );
+  const afterKeys = (after.Contents ?? []).map((o) => o.Key!);
+
+  check(
+    afterKeys.length < beforeCount,
+    'compaction reduced the file count',
+    `${beforeCount} -> ${afterKeys.length}`,
+  );
+  check(
+    afterKeys.every((k) => k.slice(k.lastIndexOf('/') + 1).startsWith('part-')),
+    'only merged part- files remain',
+    afterKeys.join(', '),
+  );
+  check(
+    !afterKeys.some((k) => k.includes('.manifest.json')),
+    'no manifest was left behind',
+  );
+
+  // The row count must be identical: compaction rewrites, it does not
+  // duplicate or drop.
+  const yDt =
+    `${yesterday.getUTCFullYear()}/` +
+    `${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}/` +
+    `${String(yesterday.getUTCDate()).padStart(2, '0')}`;
+  const compactedRows = await runQuery(
+    `SELECT count(*) AS n FROM "${out.DatabaseName}"."${out.TableName}" WHERE dt = '${yDt}'`,
+    out.WorkgroupName,
+  );
+  check(
+    compactedRows.length > 0 && Number(compactedRows[0][0]) > 0,
+    'Athena reads the compacted partition',
+    `rows: ${compactedRows[0]?.[0]}`,
+  );
 
   console.log('');
   if (failures.length > 0) {

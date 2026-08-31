@@ -9,57 +9,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/parquet-go/parquet-go"
-	"github.com/parquet-go/parquet-go/compress"
+	"github.com/jaggr2/cdk-log-to-s3/extension/internal/logrecord"
 )
 
 const uploadTimeout = 30 * time.Second
 
-// codecs is the full set of compression codecs this extension accepts. It is
-// mirrored by the LogCompression enum on the CDK side; adding one here means
-// adding it there too.
-func codecFor(name string) (compress.Codec, bool) {
-	switch name {
-	case "snappy":
-		return &parquet.Snappy, true
-	case "zstd":
-		return &parquet.Zstd, true
-	case "gzip":
-		return &parquet.Gzip, true
-	case "uncompressed", "none":
-		return &parquet.Uncompressed, true
-	default:
-		return nil, false
-	}
-}
-
+// The codec table and the Parquet writer live in internal/logrecord so the
+// compactor uses exactly the same schema and compression behaviour.
 func IsSupportedCompression(name string) bool {
-	_, ok := codecFor(name)
-	return ok
+	return logrecord.IsSupportedCompression(name)
 }
 
 // WriteParquet serialises entries into an in-memory Parquet file.
-//
-// Compression is applied here rather than through parquet struct tags: a tag
-// would take precedence over this option and make LOG_TO_S3_COMPRESSION a
-// setting that silently does nothing.
 func WriteParquet(entries []LogEntry, compression string) ([]byte, error) {
-	codec, ok := codecFor(compression)
-	if !ok {
-		codec = &parquet.Snappy
-	}
-
-	buf := new(bytes.Buffer)
-	w := parquet.NewGenericWriter[LogEntry](buf, parquet.Compression(codec))
-
-	if _, err := w.Write(entries); err != nil {
-		w.Close()
-		return nil, fmt.Errorf("write parquet rows: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("close parquet writer: %w", err)
-	}
-	return buf.Bytes(), nil
+	return logrecord.Write(entries, compression)
 }
 
 // Uploader is the S3 sink. It is nil-safe at the call site: when no bucket is

@@ -1467,6 +1467,252 @@ Normalised key prefix, e.g. 'logs/'.
 ---
 
 
+### LogCompaction <a name="LogCompaction" id="@jaggr2/cdk-log-to-s3.LogCompaction"></a>
+
+A daily job that merges the many small Parquet files the extension produces into fewer, larger ones.
+
+The extension flushes on a timer, on a size threshold and at the end of every
+invocation, so a busy function can leave thousands of tiny objects in a day
+partition. Athena pays a per-file cost opening footers, so that is slow to
+scan regardless of how little data it holds. Compaction is the answer to that
+- not finer partitioning, which only moves the cost into the query planner.
+
+It works purely at the S3 level and never touches the Glue catalog. Under
+partition projection there is nothing to register: Athena computes partitions
+from the `dt` range at query time, and rewriting files inside a partition
+does not change the partition set. This is why the construct needs no Glue
+permissions and why `MSCK REPAIR` has no role here.
+
+Only closed days are compacted; today is left alone while the extension is
+still writing into it.
+
+*Example*
+
+```typescript
+const compaction = LogCompaction.fromExtension(this, 'Compaction', extension);
+```
+
+
+#### Initializers <a name="Initializers" id="@jaggr2/cdk-log-to-s3.LogCompaction.Initializer"></a>
+
+```typescript
+import { LogCompaction } from '@jaggr2/cdk-log-to-s3'
+
+new LogCompaction(scope: Construct, id: string, props: LogCompactionProps)
+```
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.props">props</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps">LogCompactionProps</a></code> | *No description.* |
+
+---
+
+##### `scope`<sup>Required</sup> <a name="scope" id="@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+##### `id`<sup>Required</sup> <a name="id" id="@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+##### `props`<sup>Required</sup> <a name="props" id="@jaggr2/cdk-log-to-s3.LogCompaction.Initializer.parameter.props"></a>
+
+- *Type:* <a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps">LogCompactionProps</a>
+
+---
+
+#### Methods <a name="Methods" id="Methods"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.toString">toString</a></code> | Returns a string representation of this construct. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.with">with</a></code> | Applies one or more mixins to this construct. |
+
+---
+
+##### `toString` <a name="toString" id="@jaggr2/cdk-log-to-s3.LogCompaction.toString"></a>
+
+```typescript
+public toString(): string
+```
+
+Returns a string representation of this construct.
+
+##### `with` <a name="with" id="@jaggr2/cdk-log-to-s3.LogCompaction.with"></a>
+
+```typescript
+public with(mixins: ...IMixin[]): IConstruct
+```
+
+Applies one or more mixins to this construct.
+
+Mixins are applied in order. The list of constructs is captured at the
+start of the call, so constructs added by a mixin will not be visited.
+Use multiple `with()` calls if subsequent mixins should apply to added
+constructs.
+
+###### `mixins`<sup>Required</sup> <a name="mixins" id="@jaggr2/cdk-log-to-s3.LogCompaction.with.parameter.mixins"></a>
+
+- *Type:* ...constructs.IMixin[]
+
+The mixins to apply.
+
+---
+
+#### Static Functions <a name="Static Functions" id="Static Functions"></a>
+
+| **Name** | **Description** |
+| --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.isConstruct">isConstruct</a></code> | Checks if `x` is a construct. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension">fromExtension</a></code> | Build the job for an extension, taking the bucket, key prefix, architecture and codec from it so they cannot drift apart. |
+
+---
+
+##### `isConstruct` <a name="isConstruct" id="@jaggr2/cdk-log-to-s3.LogCompaction.isConstruct"></a>
+
+```typescript
+import { LogCompaction } from '@jaggr2/cdk-log-to-s3'
+
+LogCompaction.isConstruct(x: any)
+```
+
+Checks if `x` is a construct.
+
+Use this method instead of `instanceof` to properly detect `Construct`
+instances, even when the construct library is symlinked.
+
+Explanation: in JavaScript, multiple copies of the `constructs` library on
+disk are seen as independent, completely different libraries. As a
+consequence, the class `Construct` in each copy of the `constructs` library
+is seen as a different class, and an instance of one class will not test as
+`instanceof` the other class. `npm install` will not create installations
+like this, but users may manually symlink construct libraries together or
+use a monorepo tool: in those cases, multiple copies of the `constructs`
+library can be accidentally installed, and `instanceof` will behave
+unpredictably. It is safest to avoid using `instanceof`, and using
+this type-testing method instead.
+
+###### `x`<sup>Required</sup> <a name="x" id="@jaggr2/cdk-log-to-s3.LogCompaction.isConstruct.parameter.x"></a>
+
+- *Type:* any
+
+Any object.
+
+---
+
+##### `fromExtension` <a name="fromExtension" id="@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension"></a>
+
+```typescript
+import { LogCompaction } from '@jaggr2/cdk-log-to-s3'
+
+LogCompaction.fromExtension(scope: Construct, id: string, extension: ILogToS3Extension, options?: LogCompactionFromExtensionOptions)
+```
+
+Build the job for an extension, taking the bucket, key prefix, architecture and codec from it so they cannot drift apart.
+
+###### `scope`<sup>Required</sup> <a name="scope" id="@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension.parameter.scope"></a>
+
+- *Type:* constructs.Construct
+
+---
+
+###### `id`<sup>Required</sup> <a name="id" id="@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension.parameter.id"></a>
+
+- *Type:* string
+
+---
+
+###### `extension`<sup>Required</sup> <a name="extension" id="@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension.parameter.extension"></a>
+
+- *Type:* <a href="#@jaggr2/cdk-log-to-s3.ILogToS3Extension">ILogToS3Extension</a>
+
+---
+
+###### `options`<sup>Optional</sup> <a name="options" id="@jaggr2/cdk-log-to-s3.LogCompaction.fromExtension.parameter.options"></a>
+
+- *Type:* <a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions">LogCompactionFromExtensionOptions</a>
+
+---
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.property.functionArn">functionArn</a></code> | <code>string</code> | ARN of the compaction function, for wiring alarms or manual invocation. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.property.handler">handler</a></code> | <code>aws-cdk-lib.aws_lambda.Function</code> | The compaction function. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | Normalised key prefix the job operates under. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompaction.property.rule">rule</a></code> | <code>aws-cdk-lib.aws_events.Rule</code> | The schedule, or undefined when `enabled` was false. |
+
+---
+
+##### `node`<sup>Required</sup> <a name="node" id="@jaggr2/cdk-log-to-s3.LogCompaction.property.node"></a>
+
+```typescript
+public readonly node: Node;
+```
+
+- *Type:* constructs.Node
+
+The tree node.
+
+---
+
+##### `functionArn`<sup>Required</sup> <a name="functionArn" id="@jaggr2/cdk-log-to-s3.LogCompaction.property.functionArn"></a>
+
+```typescript
+public readonly functionArn: string;
+```
+
+- *Type:* string
+
+ARN of the compaction function, for wiring alarms or manual invocation.
+
+---
+
+##### `handler`<sup>Required</sup> <a name="handler" id="@jaggr2/cdk-log-to-s3.LogCompaction.property.handler"></a>
+
+```typescript
+public readonly handler: Function;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Function
+
+The compaction function.
+
+---
+
+##### `keyPrefix`<sup>Required</sup> <a name="keyPrefix" id="@jaggr2/cdk-log-to-s3.LogCompaction.property.keyPrefix"></a>
+
+```typescript
+public readonly keyPrefix: string;
+```
+
+- *Type:* string
+
+Normalised key prefix the job operates under.
+
+---
+
+##### `rule`<sup>Optional</sup> <a name="rule" id="@jaggr2/cdk-log-to-s3.LogCompaction.property.rule"></a>
+
+```typescript
+public readonly rule: Rule;
+```
+
+- *Type:* aws-cdk-lib.aws_events.Rule
+
+The schedule, or undefined when `enabled` was false.
+
+---
+
+
 ### LogToS3Extension <a name="LogToS3Extension" id="@jaggr2/cdk-log-to-s3.LogToS3Extension"></a>
 
 - *Implements:* <a href="#@jaggr2/cdk-log-to-s3.ILogToS3Extension">ILogToS3Extension</a>
@@ -2629,6 +2875,408 @@ Key prefix the extension writes under.
 
 Recorded on the construct so a
 LogAnalytics table can be pointed at the same place without repeating it.
+
+---
+
+### LogCompactionFromExtensionOptions <a name="LogCompactionFromExtensionOptions" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions"></a>
+
+Options for LogCompaction.fromExtension.
+
+#### Initializer <a name="Initializer" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.Initializer"></a>
+
+```typescript
+import { LogCompactionFromExtensionOptions } from '@jaggr2/cdk-log-to-s3'
+
+const logCompactionFromExtensionOptions: LogCompactionFromExtensionOptions = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.compression">compression</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.LogCompression">LogCompression</a></code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.debug">debug</a></code> | <code>boolean</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.enabled">enabled</a></code> | <code>boolean</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.lookback">lookback</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.maxBytesPerRun">maxBytesPerRun</a></code> | <code>aws-cdk-lib.Size</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.maxFilesPerRun">maxFilesPerRun</a></code> | <code>number</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.memorySize">memorySize</a></code> | <code>aws-cdk-lib.Size</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.minFilesPerPartition">minFilesPerPartition</a></code> | <code>number</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.removalPolicy">removalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.schedule">schedule</a></code> | <code>aws-cdk-lib.aws_events.Schedule</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
+
+---
+
+##### `compression`<sup>Optional</sup> <a name="compression" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.compression"></a>
+
+```typescript
+public readonly compression: LogCompression;
+```
+
+- *Type:* <a href="#@jaggr2/cdk-log-to-s3.LogCompression">LogCompression</a>
+- *Default:* LogCompression.SNAPPY
+
+---
+
+##### `debug`<sup>Optional</sup> <a name="debug" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.debug"></a>
+
+```typescript
+public readonly debug: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+---
+
+##### `enabled`<sup>Optional</sup> <a name="enabled" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.enabled"></a>
+
+```typescript
+public readonly enabled: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+---
+
+##### `logRetention`<sup>Optional</sup> <a name="logRetention" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.logRetention"></a>
+
+```typescript
+public readonly logRetention: RetentionDays;
+```
+
+- *Type:* aws-cdk-lib.aws_logs.RetentionDays
+- *Default:* logs.RetentionDays.ONE_MONTH
+
+---
+
+##### `lookback`<sup>Optional</sup> <a name="lookback" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.lookback"></a>
+
+```typescript
+public readonly lookback: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.days(7)
+
+---
+
+##### `maxBytesPerRun`<sup>Optional</sup> <a name="maxBytesPerRun" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.maxBytesPerRun"></a>
+
+```typescript
+public readonly maxBytesPerRun: Size;
+```
+
+- *Type:* aws-cdk-lib.Size
+- *Default:* Size.mebibytes(256)
+
+---
+
+##### `maxFilesPerRun`<sup>Optional</sup> <a name="maxFilesPerRun" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.maxFilesPerRun"></a>
+
+```typescript
+public readonly maxFilesPerRun: number;
+```
+
+- *Type:* number
+- *Default:* 2000
+
+---
+
+##### `memorySize`<sup>Optional</sup> <a name="memorySize" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.memorySize"></a>
+
+```typescript
+public readonly memorySize: Size;
+```
+
+- *Type:* aws-cdk-lib.Size
+- *Default:* Size.mebibytes(1024)
+
+---
+
+##### `minFilesPerPartition`<sup>Optional</sup> <a name="minFilesPerPartition" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.minFilesPerPartition"></a>
+
+```typescript
+public readonly minFilesPerPartition: number;
+```
+
+- *Type:* number
+- *Default:* 8
+
+---
+
+##### `removalPolicy`<sup>Optional</sup> <a name="removalPolicy" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.removalPolicy"></a>
+
+```typescript
+public readonly removalPolicy: RemovalPolicy;
+```
+
+- *Type:* aws-cdk-lib.RemovalPolicy
+- *Default:* RemovalPolicy.DESTROY
+
+---
+
+##### `schedule`<sup>Optional</sup> <a name="schedule" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.schedule"></a>
+
+```typescript
+public readonly schedule: Schedule;
+```
+
+- *Type:* aws-cdk-lib.aws_events.Schedule
+- *Default:* every day at 03:00 UTC
+
+---
+
+##### `timeout`<sup>Optional</sup> <a name="timeout" id="@jaggr2/cdk-log-to-s3.LogCompactionFromExtensionOptions.property.timeout"></a>
+
+```typescript
+public readonly timeout: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.minutes(5)
+
+---
+
+### LogCompactionProps <a name="LogCompactionProps" id="@jaggr2/cdk-log-to-s3.LogCompactionProps"></a>
+
+#### Initializer <a name="Initializer" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.Initializer"></a>
+
+```typescript
+import { LogCompactionProps } from '@jaggr2/cdk-log-to-s3'
+
+const logCompactionProps: LogCompactionProps = { ... }
+```
+
+#### Properties <a name="Properties" id="Properties"></a>
+
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.logsBucket">logsBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | Bucket the extension writes to. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.architecture">architecture</a></code> | <code>aws-cdk-lib.aws_lambda.Architecture</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.compression">compression</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.LogCompression">LogCompression</a></code> | Codec for the merged output. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.debug">debug</a></code> | <code>boolean</code> | Report every partition considered, not only the ones compacted. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.enabled">enabled</a></code> | <code>boolean</code> | Create the schedule. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.keyPrefix">keyPrefix</a></code> | <code>string</code> | Must equal LogToS3ExtensionProps.keyPrefix, or the job will look in the wrong place and quietly find nothing to do. Use LogCompaction.fromExtension() to make that impossible. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.logRetention">logRetention</a></code> | <code>aws-cdk-lib.aws_logs.RetentionDays</code> | Retention for the job's own CloudWatch logs. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.lookback">lookback</a></code> | <code>aws-cdk-lib.Duration</code> | How many closed days each run considers, most recent first. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.maxBytesPerRun">maxBytesPerRun</a></code> | <code>aws-cdk-lib.Size</code> | Cap on bytes read per partition per run. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.maxFilesPerRun">maxFilesPerRun</a></code> | <code>number</code> | Cap on files merged per partition per run. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.memorySize">memorySize</a></code> | <code>aws-cdk-lib.Size</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.minFilesPerPartition">minFilesPerPartition</a></code> | <code>number</code> | Leave a partition alone until it holds at least this many files. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.removalPolicy">removalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.schedule">schedule</a></code> | <code>aws-cdk-lib.aws_events.Schedule</code> | When to run. |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogCompactionProps.property.timeout">timeout</a></code> | <code>aws-cdk-lib.Duration</code> | *No description.* |
+
+---
+
+##### `logsBucket`<sup>Required</sup> <a name="logsBucket" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.logsBucket"></a>
+
+```typescript
+public readonly logsBucket: IBucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.IBucket
+
+Bucket the extension writes to.
+
+---
+
+##### `architecture`<sup>Optional</sup> <a name="architecture" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.architecture"></a>
+
+```typescript
+public readonly architecture: Architecture;
+```
+
+- *Type:* aws-cdk-lib.aws_lambda.Architecture
+- *Default:* lambda.Architecture.ARM_64
+
+---
+
+##### `compression`<sup>Optional</sup> <a name="compression" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.compression"></a>
+
+```typescript
+public readonly compression: LogCompression;
+```
+
+- *Type:* <a href="#@jaggr2/cdk-log-to-s3.LogCompression">LogCompression</a>
+- *Default:* LogCompression.SNAPPY
+
+Codec for the merged output.
+
+Match the extension unless you want the
+archive stored more densely than it was written.
+
+---
+
+##### `debug`<sup>Optional</sup> <a name="debug" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.debug"></a>
+
+```typescript
+public readonly debug: boolean;
+```
+
+- *Type:* boolean
+- *Default:* false
+
+Report every partition considered, not only the ones compacted.
+
+---
+
+##### `enabled`<sup>Optional</sup> <a name="enabled" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.enabled"></a>
+
+```typescript
+public readonly enabled: boolean;
+```
+
+- *Type:* boolean
+- *Default:* true
+
+Create the schedule.
+
+Set false to deploy the function but trigger it
+yourself.
+
+---
+
+##### `keyPrefix`<sup>Optional</sup> <a name="keyPrefix" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.keyPrefix"></a>
+
+```typescript
+public readonly keyPrefix: string;
+```
+
+- *Type:* string
+- *Default:* 'logs/'
+
+Must equal LogToS3ExtensionProps.keyPrefix, or the job will look in the wrong place and quietly find nothing to do. Use LogCompaction.fromExtension() to make that impossible.
+
+---
+
+##### `logRetention`<sup>Optional</sup> <a name="logRetention" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.logRetention"></a>
+
+```typescript
+public readonly logRetention: RetentionDays;
+```
+
+- *Type:* aws-cdk-lib.aws_logs.RetentionDays
+- *Default:* logs.RetentionDays.ONE_MONTH
+
+Retention for the job's own CloudWatch logs.
+
+---
+
+##### `lookback`<sup>Optional</sup> <a name="lookback" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.lookback"></a>
+
+```typescript
+public readonly lookback: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.days(7)
+
+How many closed days each run considers, most recent first.
+
+More than one
+so a failed or skipped run catches up by itself.
+
+---
+
+##### `maxBytesPerRun`<sup>Optional</sup> <a name="maxBytesPerRun" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.maxBytesPerRun"></a>
+
+```typescript
+public readonly maxBytesPerRun: Size;
+```
+
+- *Type:* aws-cdk-lib.Size
+- *Default:* Size.mebibytes(256)
+
+Cap on bytes read per partition per run.
+
+Keep it comfortably below
+`memorySize`: rows are held in memory while merging.
+
+---
+
+##### `maxFilesPerRun`<sup>Optional</sup> <a name="maxFilesPerRun" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.maxFilesPerRun"></a>
+
+```typescript
+public readonly maxFilesPerRun: number;
+```
+
+- *Type:* number
+- *Default:* 2000
+
+Cap on files merged per partition per run.
+
+Whatever is left over is picked
+up next run, and every run still reduces the file count.
+
+---
+
+##### `memorySize`<sup>Optional</sup> <a name="memorySize" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.memorySize"></a>
+
+```typescript
+public readonly memorySize: Size;
+```
+
+- *Type:* aws-cdk-lib.Size
+- *Default:* Size.mebibytes(1024)
+
+---
+
+##### `minFilesPerPartition`<sup>Optional</sup> <a name="minFilesPerPartition" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.minFilesPerPartition"></a>
+
+```typescript
+public readonly minFilesPerPartition: number;
+```
+
+- *Type:* number
+- *Default:* 8
+
+Leave a partition alone until it holds at least this many files.
+
+Below it
+the read and rewrite costs more than the scan it saves.
+
+---
+
+##### `removalPolicy`<sup>Optional</sup> <a name="removalPolicy" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.removalPolicy"></a>
+
+```typescript
+public readonly removalPolicy: RemovalPolicy;
+```
+
+- *Type:* aws-cdk-lib.RemovalPolicy
+- *Default:* RemovalPolicy.DESTROY
+
+---
+
+##### `schedule`<sup>Optional</sup> <a name="schedule" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.schedule"></a>
+
+```typescript
+public readonly schedule: Schedule;
+```
+
+- *Type:* aws-cdk-lib.aws_events.Schedule
+- *Default:* every day at 03:00 UTC
+
+When to run.
+
+Compaction only touches closed days, so anything daily works;
+off-peak is polite but not required.
+
+---
+
+##### `timeout`<sup>Optional</sup> <a name="timeout" id="@jaggr2/cdk-log-to-s3.LogCompactionProps.property.timeout"></a>
+
+```typescript
+public readonly timeout: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.minutes(5)
 
 ---
 

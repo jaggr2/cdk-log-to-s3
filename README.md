@@ -10,8 +10,9 @@ cents and `SELECT ... WHERE level = 'ERROR'` runs across every function at once.
 
 - **No Go, no Docker.** The layer binaries are prebuilt and ship inside the npm
   package. `cdk synth` just works.
-- **No crawler, no MSCK REPAIR, no scheduled Lambda.** Partitions resolve
-  through Athena partition projection.
+- **No crawler and no MSCK REPAIR.** Partitions resolve through Athena
+  partition projection.
+- **Optional daily compaction** for the small files a chatty function produces.
 - **arm64 and x86_64.**
 
 ```bash
@@ -171,6 +172,52 @@ after 180 days, well inside it.
 Set `createDatabase: false` when the database already exists -
 `AWS::Glue::Database` fails if it does.
 
+### `LogCompaction`
+
+A daily Lambda that merges the many small Parquet files the extension produces
+into fewer, larger ones.
+
+```ts
+LogCompaction.fromExtension(this, 'Compaction', extension);
+```
+
+The extension flushes on a timer, on a size threshold and at the end of every
+invocation, so a busy function can leave thousands of tiny objects in a day
+partition. Athena pays a per-file cost opening footers, so that is slow to scan
+regardless of how little data it holds. Compaction is the answer to that -
+*not* finer partitioning, which only moves the cost into the query planner.
+
+| Prop | Default | |
+|---|---|---|
+| `schedule` | daily 03:00 UTC | Any `events.Schedule` |
+| `enabled` | `true` | `false` deploys the function without a schedule |
+| `lookback` | 7 days | Closed days considered per run, so a failed run catches up |
+| `minFilesPerPartition` | 8 | Below this, merging costs more than it saves |
+| `maxFilesPerRun` | 2000 | Leftovers are picked up next run |
+| `maxBytesPerRun` | 256 MiB | Keep below `memorySize`; rows are merged in memory |
+| `memorySize` | 1024 MiB | |
+| `timeout` | 5 min | |
+
+Only closed days are compacted - today is left alone while the extension is
+still writing into it. Merged rows are sorted by `timestamp`, which tightens
+row-group statistics so a query with a timestamp predicate can skip more.
+
+**It never touches the Glue catalog, and `MSCK REPAIR` has no role here.** That
+command existed for tables whose partitions were discovered by scanning S3.
+Under partition projection there is nothing to register: Athena computes
+partitions from the `dt` range at query time, and rewriting files *inside* a
+partition does not change the partition set. The construct therefore needs no
+Glue permissions at all - only prefix-scoped read, write and delete on the
+bucket.
+
+Compaction is crash-safe. It writes the merged file, records the sources it
+consumed in a hidden `_part-<id>.manifest.json`, deletes those sources, then
+deletes the manifest. A run that dies at any point leaves enough behind for the
+next run to finish the deletion rather than merge the same rows twice. The
+output key is a hash of the exact source set, so a repeated write is idempotent.
+(The manifest is hidden from Athena by its leading underscore, the same
+convention that keeps Hadoop `_SUCCESS` files out of query results.)
+
 ## Development
 
 ```bash
@@ -179,9 +226,10 @@ npx projen build:layers   # rebuild the Go binaries (needs Go)
 npx projen test:go        # Go unit tests
 ```
 
-The layer zips in `assets/` are committed. CI rebuilds them whenever
-`extension-go/` changes and fails if the result differs, so the binaries always
-match the source. Builds are reproducible: `-trimpath`, an empty build id, a
+The zips in `assets/` are committed - the extension layer and the compaction
+function, each for both architectures. CI rebuilds them whenever `extension-go/`
+changes and fails if the result differs, so the binaries always match the
+source. Builds are reproducible: `-trimpath`, an empty build id, a
 pinned toolchain in `go.mod`, and a fixed timestamp on every zip entry.
 
 To verify against real AWS:

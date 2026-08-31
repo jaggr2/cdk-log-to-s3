@@ -1,8 +1,12 @@
 {
   "goVersion": "go1.26.4",
+  "artifacts": [
+    "layer",
+    "compactor"
+  ],
   "targets": [
     "arm64",
     "x86_64"
   ],
-  "extensionSourceSha": "043a41c3dfddaf25944e3febcb5846cfd54f7287bacc90b5bbc6a86b0b822f2d"
+  "extensionSourceSha": "741fc082ffd5b94468d917f997d7f4f948c495949bfa2495f0ef7ad12f1bd47a"
 }

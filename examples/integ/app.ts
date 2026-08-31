@@ -16,7 +16,13 @@ import { App, CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from 'aws-
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
-import { LogAnalytics, LogBucket, LogLevel, LogToS3Extension } from '../../src';
+import {
+  LogAnalytics,
+  LogBucket,
+  LogCompaction,
+  LogLevel,
+  LogToS3Extension,
+} from '../../src';
 
 class IntegStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -62,7 +68,20 @@ class IntegStack extends Stack {
       projectionWindow: Duration.days(7),
     });
 
+    // enabled:false - the verification script invokes it directly rather than
+    // waiting for a schedule. minFilesPerPartition is lowered so a handful of
+    // integ objects is enough to trigger a merge.
+    const compaction = LogCompaction.fromExtension(this, 'Compaction', extension, {
+      enabled: false,
+      minFilesPerPartition: 2,
+      lookback: Duration.days(2),
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     new CfnOutput(this, 'FunctionName', { value: fn.functionName });
+    new CfnOutput(this, 'CompactionFunctionName', {
+      value: compaction.handler.functionName,
+    });
     new CfnOutput(this, 'LogsBucketName', { value: logsBucket.bucketName });
     new CfnOutput(this, 'KeyPrefix', { value: extension.keyPrefix });
     new CfnOutput(this, 'DatabaseName', { value: analytics.databaseName });

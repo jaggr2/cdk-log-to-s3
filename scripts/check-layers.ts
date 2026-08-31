@@ -9,7 +9,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BINARY, TARGETS, sha256, sha256Path, zipPath } from './layers';
+import { ARTIFACTS, TARGETS, sha256, sha256Path, zipPath } from './layers';
 
 const MIN_SIZE_BYTES = 1024 * 1024;
 
@@ -63,8 +63,9 @@ function readZipEntries(file: string): ZipEntry[] {
 
 const problems: string[] = [];
 
-for (const target of TARGETS) {
-  const zip = zipPath(target);
+for (const artifact of ARTIFACTS) {
+  for (const target of TARGETS) {
+  const zip = zipPath(artifact, target);
   const rel = path.basename(zip);
 
   if (!fs.existsSync(zip)) {
@@ -86,7 +87,7 @@ for (const target of TARGETS) {
     continue;
   }
 
-  const sidecar = sha256Path(target);
+  const sidecar = sha256Path(artifact, target);
   if (!fs.existsSync(sidecar)) {
     problems.push(`${rel}.sha256 is missing - run: npx projen build:layers`);
   } else {
@@ -98,7 +99,7 @@ for (const target of TARGETS) {
   }
 
   const entries = readZipEntries(zip);
-  const wantName = `extensions/${BINARY}`;
+  const wantName = artifact.entry;
   const entry = entries.find((e) => e.name === wantName);
 
   if (!entry) {
@@ -112,6 +113,7 @@ for (const target of TARGETS) {
       `${rel}: ${wantName} has mode 0${entry.mode.toString(8)} and is not executable; Lambda INIT will fail`,
     );
   }
+  }
 }
 
 if (problems.length > 0) {
@@ -120,4 +122,7 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-console.log(`Layer assets OK (${TARGETS.map((t) => t.layer).join(', ')}), extensions/${BINARY} is executable.`);
+console.log(
+  `Assets OK: ${ARTIFACTS.map((a) => a.name).join(' + ')} for ` +
+    `${TARGETS.map((t) => t.layer).join(', ')}; every entrypoint is executable.`,
+);

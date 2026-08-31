@@ -5,6 +5,10 @@
       "type": "build"
     },
     {
+      "name": "@aws-sdk/client-cloudformation",
+      "type": "build"
+    },
+    {
       "name": "@aws-sdk/client-lambda",
       "type": "build"
     },

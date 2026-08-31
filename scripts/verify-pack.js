@@ -7,7 +7,12 @@
  */
 const { execSync } = require('node:child_process');
 
-const required = ['assets/layer-arm64.zip', 'assets/layer-x86_64.zip'];
+const required = [
+  'assets/layer-arm64.zip',
+  'assets/layer-x86_64.zip',
+  'assets/compactor-arm64.zip',
+  'assets/compactor-x86_64.zip',
+];
 
 const out = execSync('npm pack --dry-run --json', { encoding: 'utf8' });
 
@@ -21,4 +26,4 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-console.log(`npm tarball contains ${required.join(', ')}`);
+console.log(`npm tarball contains all ${required.length} Go artifacts`);

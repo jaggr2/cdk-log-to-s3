@@ -1,17 +1,30 @@
 /**
- * Cross-compiles the Go extension for every supported Lambda architecture and
- * packages each binary as a layer zip under assets/.
+ * Cross-compiles the Go binaries for every supported Lambda architecture and
+ * packages each as a zip under assets/.
+ *
+ * Two artifacts come out of this: the telemetry extension, packaged as a
+ * layer, and the compaction function, packaged as a provided.al2023 handler.
  *
  * This is a Node script rather than a Makefile because neither `make` nor
  * `zip` can be assumed present on a Windows development machine, and because
- * the extension file has to carry mode 0755 inside the archive - Lambda fails
+ * the executables have to carry mode 0755 inside the archive - Lambda fails
  * INIT otherwise, with an error that never mentions permissions.
  */
 import { execFileSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ASSETS_DIR, BINARY, GO_DIR, TARGETS, Target, sha256, sha256Path, zipPath } from './layers';
+import {
+  ARTIFACTS,
+  ASSETS_DIR,
+  Artifact,
+  GO_DIR,
+  TARGETS,
+  Target,
+  sha256,
+  sha256Path,
+  zipPath,
+} from './layers';
 import { buildZip } from './zip';
 
 /**
@@ -26,13 +39,13 @@ function goVersion(): string {
   return execFileSync('go', ['env', 'GOVERSION'], { encoding: 'utf8' }).trim();
 }
 
-function compile(target: Target): Buffer {
-  const outDir = path.join(GO_DIR, 'dist', target.layer);
+function compile(artifact: Artifact, target: Target): Buffer {
+  const outDir = path.join(GO_DIR, 'dist', artifact.name, target.layer);
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
 
-  const binPath = path.join(outDir, BINARY);
-  console.log(`[build] GOARCH=${target.goarch}`);
+  const binPath = path.join(outDir, path.basename(artifact.entry));
+  console.log(`[build] ${artifact.name} GOARCH=${target.goarch}`);
 
   execFileSync(
     'go',
@@ -47,7 +60,7 @@ function compile(target: Target): Buffer {
       '-s -w -buildid=',
       '-o',
       binPath,
-      '.',
+      artifact.pkg,
     ],
     {
       cwd: GO_DIR,
@@ -65,41 +78,55 @@ function compile(target: Target): Buffer {
   return fs.readFileSync(binPath);
 }
 
-function pack(target: Target, binary: Buffer): void {
-  const out = zipPath(target);
+function pack(artifact: Artifact, target: Target, binary: Buffer): void {
+  const out = zipPath(artifact, target);
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 
-  // 0o755 is not optional. Lambda executes /opt/extensions/<name> directly.
-  fs.writeFileSync(out, buildZip([{ name: `extensions/${BINARY}`, data: binary, mode: 0o755 }]));
-  fs.writeFileSync(sha256Path(target), `${sha256(out)}\n`, 'utf8');
+  // 0o755 is not optional. Lambda executes the file directly.
+  fs.writeFileSync(out, buildZip([{ name: artifact.entry, data: binary, mode: 0o755 }]));
+  fs.writeFileSync(sha256Path(artifact, target), `${sha256(out)}\n`, 'utf8');
 
   const kb = Math.round(fs.statSync(out).size / 1024);
   console.log(`[pack ] ${path.basename(out)} (${kb} KB)`);
 }
 
 /**
- * Fingerprint of the extension source. Recorded so a deployed layer can be
- * traced back to the code it was built from without a git checkout.
+ * Fingerprint of the Go source. Recorded so a deployed artifact can be traced
+ * back to the code it was built from without a git checkout.
  */
 function extensionSourceSha(): string {
-  const files = fs
-    .readdirSync(GO_DIR)
-    .filter((f) => (f.endsWith('.go') && !f.endsWith('_test.go')) || f === 'go.mod' || f === 'go.sum')
-    .sort();
-
   const hash = crypto.createHash('sha256');
-  for (const f of files) {
-    hash.update(f);
-    hash.update(fs.readFileSync(path.join(GO_DIR, f)));
-  }
+
+  const walk = (dir: string): void => {
+    for (const name of fs.readdirSync(dir).sort()) {
+      // dist/ is build output, and hashing it would make the fingerprint
+      // depend on itself.
+      if (name === 'dist') continue;
+
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.go$/.test(name) && name !== 'go.mod' && name !== 'go.sum') continue;
+      if (name.endsWith('_test.go')) continue;
+
+      hash.update(path.relative(GO_DIR, full).split(path.sep).join('/'));
+      hash.update(fs.readFileSync(full));
+    }
+  };
+  walk(GO_DIR);
+
   return hash.digest('hex');
 }
 
 function main(): void {
   console.log(`[go   ] ${goVersion()}`);
 
-  for (const target of TARGETS) {
-    pack(target, compile(target));
+  for (const artifact of ARTIFACTS) {
+    for (const target of TARGETS) {
+      pack(artifact, target, compile(artifact, target));
+    }
   }
 
   fs.writeFileSync(
@@ -107,6 +134,7 @@ function main(): void {
     `${JSON.stringify(
       {
         goVersion: goVersion(),
+        artifacts: ARTIFACTS.map((a) => a.name),
         targets: TARGETS.map((t) => t.layer),
         extensionSourceSha: extensionSourceSha(),
       },
