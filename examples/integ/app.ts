@@ -65,6 +65,16 @@ class IntegStack extends Stack {
       databaseName: 'log_to_s3_integ',
       tableName: 'app_logs',
       removalPolicy: RemovalPolicy.DESTROY,
+      // Bring our own results bucket purely so it can auto-delete. Athena
+      // writes query results into it, and `cdk destroy` fails on a non-empty
+      // bucket - which is exactly what happens after a verification run.
+      resultsBucket: new LogBucket(this, 'AthenaResults', {
+        removalPolicy: RemovalPolicy.DESTROY,
+        autoDeleteObjects: true,
+        expireAfter: Duration.days(1),
+        infrequentAccessAfter: Duration.days(0),
+        glacierAfter: Duration.days(0),
+      }),
       projectionWindow: Duration.days(7),
     });
 

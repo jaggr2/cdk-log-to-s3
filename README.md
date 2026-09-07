@@ -172,6 +172,11 @@ after 180 days, well inside it.
 Set `createDatabase: false` when the database already exists -
 `AWS::Glue::Database` fails if it does.
 
+The Athena results bucket it creates defaults to `RemovalPolicy.RETAIN` and has
+no auto-delete, so `cdk destroy` on a throwaway stack fails once any query has
+run. For ephemeral stacks, pass your own `resultsBucket` with
+`autoDeleteObjects: true`.
+
 ### `LogCompaction`
 
 A daily Lambda that merges the many small Parquet files the extension produces
