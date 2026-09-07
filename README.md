@@ -15,6 +15,13 @@ cents and `SELECT ... WHERE level = 'ERROR'` runs across every function at once.
 - **Optional daily compaction** for the small files a chatty function produces.
 - **arm64 and x86_64.**
 
+One tradeoff worth knowing before you adopt it: an invocation stays open
+until its telemetry has been written, which adds roughly **200-400 ms of
+billed duration** per invocation. That is the price of logs that are on S3
+when the handler returns rather than whenever the sandbox next thaws. Set
+`runtimeDoneWait: Duration.millis(0)` to opt out and deliver each
+invocation's logs on the following one instead.
+
 ```bash
 npm install @jaggr2/cdk-log-to-s3
 ```
@@ -128,6 +135,7 @@ thousands of partitions that grew without bound.
 | `keyPrefix` | `'logs/'` | Must match `LogAnalytics` |
 | `logLevel` | `INFO` | Records below this are dropped |
 | `flushInterval` | 15s | |
+| `runtimeDoneWait` | 1s | Holds the invocation open until its logs are written; `Duration.millis(0)` opts out |
 | `maxBufferSize` | 10 MiB | Charged to the function's memory |
 | `compression` | `SNAPPY` | |
 | `includePlatformReport` | `true` | One duration/memory row per invocation |
