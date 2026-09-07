@@ -185,15 +185,29 @@ async function main(): Promise<void> {
     `${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}/` +
     `${String(yesterday.getUTCDate()).padStart(2, '0')}/`;
 
-  const seeded = keys.slice(0, 4);
-  for (const key of seeded) {
-    await s3.send(
-      new CopyObjectCommand({
-        Bucket: out.LogsBucketName,
-        CopySource: `${out.LogsBucketName}/${key}`,
-        Key: yPrefix + key.slice(key.lastIndexOf('/') + 1),
-      }),
-    );
+  // Seed a fixed number of files rather than however many this run happened to
+  // write. Logs are now flushed inside the invocation that produced them, so a
+  // one-invocation run leaves exactly one object - below minFilesPerPartition,
+  // where the job correctly skips the partition and the merge is never
+  // exercised. Copying one source under several names keeps this section
+  // independent of how the extension batches.
+  const seedCount = 4;
+  const seeded: string[] = [];
+  if (keys.length > 0) {
+    for (let i = 0; i < seedCount; i++) {
+      const source = keys[i % keys.length];
+      const name = source
+        .slice(source.lastIndexOf('/') + 1)
+        .replace(/\.parquet$/, `-seed${i}.parquet`);
+      await s3.send(
+        new CopyObjectCommand({
+          Bucket: out.LogsBucketName,
+          CopySource: `${out.LogsBucketName}/${source}`,
+          Key: yPrefix + name,
+        }),
+      );
+      seeded.push(name);
+    }
   }
   check(seeded.length >= 2, 'seeded a closed partition to compact', `${seeded.length} objects`);
 
@@ -201,6 +215,20 @@ async function main(): Promise<void> {
     new ListObjectsV2Command({ Bucket: out.LogsBucketName, Prefix: yPrefix }),
   );
   const beforeCount = (before.Contents ?? []).length;
+
+  const yDt =
+    `${yesterday.getUTCFullYear()}/` +
+    `${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}/` +
+    `${String(yesterday.getUTCDate()).padStart(2, '0')}`;
+  const countSql =
+    `SELECT count(*) AS n FROM "${out.DatabaseName}"."${out.TableName}" WHERE dt = '${yDt}'`;
+
+  // Counted before the job runs so the comparison below is against a real
+  // number rather than against nothing. runQuery sets no result-reuse config,
+  // so the identical SQL after compaction re-executes instead of replaying a
+  // cached result - which would make the whole check vacuous.
+  const rowsBefore = Number((await runQuery(countSql, out.WorkgroupName))[0]?.[0] ?? 0);
+  check(rowsBefore > 0, 'Athena reads the partition before compaction', `rows: ${rowsBefore}`);
 
   const compacted = await lambda.send(
     new InvokeCommand({ FunctionName: out.CompactionFunctionName, Payload: Buffer.from('{}') }),
@@ -232,19 +260,13 @@ async function main(): Promise<void> {
   );
 
   // The row count must be identical: compaction rewrites, it does not
-  // duplicate or drop.
-  const yDt =
-    `${yesterday.getUTCFullYear()}/` +
-    `${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}/` +
-    `${String(yesterday.getUTCDate()).padStart(2, '0')}`;
-  const compactedRows = await runQuery(
-    `SELECT count(*) AS n FROM "${out.DatabaseName}"."${out.TableName}" WHERE dt = '${yDt}'`,
-    out.WorkgroupName,
-  );
+  // duplicate or drop. Merely asserting rows > 0 would pass a job that lost
+  // most of a partition, which is the one failure that matters most here.
+  const rowsAfter = Number((await runQuery(countSql, out.WorkgroupName))[0]?.[0] ?? 0);
   check(
-    compactedRows.length > 0 && Number(compactedRows[0][0]) > 0,
-    'Athena reads the compacted partition',
-    `rows: ${compactedRows[0]?.[0]}`,
+    rowsAfter === rowsBefore,
+    'compaction preserved every row',
+    `${rowsBefore} -> ${rowsAfter}`,
   );
 
   console.log('');
