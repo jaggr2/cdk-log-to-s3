@@ -93,6 +93,24 @@ export interface LogToS3ExtensionProps {
   readonly includePlatformReport?: boolean;
 
   /**
+   * How long the extension holds the invocation open after your handler
+   * returns, waiting for Lambda to deliver that invocation's telemetry.
+   *
+   * Lambda freezes the execution environment as soon as the runtime has
+   * responded and every extension has released the invocation. Releasing
+   * immediately means the records are still in the platform buffer, and they
+   * stay there until the environment thaws again - one invocation late on a
+   * busy function, minutes late on a quiet one.
+   *
+   * This wait is billed duration, so it is a real trade: correctness and
+   * freshness against a little cost. `Duration.millis(0)` opts out and
+   * restores deliver-on-next-invocation.
+   *
+   * @default Duration.seconds(1)
+   */
+  readonly runtimeDoneWait?: Duration;
+
+  /**
    * Verbose self-logging from the extension. Off by default: every line it
    * writes is itself billed CloudWatch ingest on every invocation.
    *
@@ -299,6 +317,7 @@ export class LogToS3Extension extends Construct implements ILogToS3Extension {
       flushInterval: props.flushInterval,
       maxBufferSize: props.maxBufferSize,
       includePlatformReport: props.includePlatformReport,
+      runtimeDoneWait: props.runtimeDoneWait,
       extensionDebug: props.extensionDebug,
     });
   }
@@ -364,6 +383,7 @@ interface EnvironmentOptions {
   readonly flushInterval?: Duration;
   readonly maxBufferSize?: Size;
   readonly includePlatformReport?: boolean;
+  readonly runtimeDoneWait?: Duration;
   readonly extensionDebug?: boolean;
 }
 
@@ -395,6 +415,10 @@ function buildEnvironment(options: EnvironmentOptions): {
   }
   if (options.includePlatformReport !== undefined) {
     env[ENV.INCLUDE_PLATFORM_REPORT] = `${options.includePlatformReport}`;
+  }
+  if (options.runtimeDoneWait !== undefined) {
+    env[ENV.RUNTIME_DONE_WAIT_MS] =
+      `${options.runtimeDoneWait.toMilliseconds()}`;
   }
   if (options.extensionDebug !== undefined) {
     env[ENV.DEBUG] = `${options.extensionDebug}`;

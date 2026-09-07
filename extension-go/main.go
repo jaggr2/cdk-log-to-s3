@@ -60,14 +60,17 @@ func main() {
 		}
 	}
 
-	// Event loop. Telemetry for invocation N is delivered after its INVOKE
-	// event, so the buffer is flushed on the way into the next wait rather
-	// than on the way out of the previous one.
+	// Event loop.
+	//
+	// Calling /event/next is what releases the sandbox: Lambda freezes the
+	// execution environment once the runtime has responded and every extension
+	// has called it. So after an INVOKE we wait for the Telemetry API to
+	// deliver that invocation's records - which flushes them - before looping
+	// round. Releasing immediately would freeze the environment with the
+	// records still sitting in the platform buffer, undelivered until the next
+	// thaw: one invocation late on a busy function, minutes late on a quiet
+	// one, and only rescued by the shutdown flush at the very end.
 	for {
-		if subscribed && listener.Buffer().SizeBytes() > 0 {
-			listener.flushLogged("invoke")
-		}
-
 		eventType, err := nextEvent(extensionID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "LOG_TO_S3_ERROR: event loop ended: %v\n", err)
@@ -75,6 +78,17 @@ func main() {
 		}
 		if eventType == "SHUTDOWN" {
 			break
+		}
+
+		if subscribed {
+			// Wait for this invocation's records, then upload them here, on
+			// the goroutine that has not yet released the invocation. Lambda
+			// keeps the environment thawed until /event/next is called below,
+			// which is exactly as long as the upload needs.
+			listener.AwaitRuntimeDone(cfg.RuntimeDoneWait)
+			if listener.Buffer().SizeBytes() > 0 {
+				listener.flushLogged("invoke")
+			}
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -21,6 +22,11 @@ type Listener struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// runtimeDone is signalled when the Telemetry API reports that an
+	// invocation finished. The event loop waits on it before releasing the
+	// sandbox; see AwaitRuntimeDone.
+	runtimeDone chan struct{}
 }
 
 func NewListener(cfg *Config, up *Uploader) *Listener {
@@ -29,6 +35,9 @@ func NewListener(cfg *Config, up *Uploader) *Listener {
 		parser: NewParser(cfg, time.Now),
 		up:     up,
 		done:   make(chan struct{}),
+		// Buffered and non-blocking, so a delivery never stalls on a loop that
+		// is not currently waiting.
+		runtimeDone: make(chan struct{}, 1),
 	}
 	l.buffer = NewLogBuffer(cfg.MaxBufferBytes, l.flushEntries)
 	return l
@@ -114,6 +123,17 @@ func (l *Listener) handleTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Logged under debug because silence here is otherwise indistinguishable
+	// from a destination Lambda cannot reach. The types matter as much as the
+	// count when diagnosing which records are and are not being delivered.
+	if l.cfg.Debug {
+		types := make([]string, 0, len(batches))
+		for _, b := range batches {
+			types = append(types, b.Type)
+		}
+		l.debugf("received %d telemetry event(s): %s", len(batches), strings.Join(types, ","))
+	}
+
 	flushRequested := false
 	for _, batch := range batches {
 		entries, flush := l.parser.ParseBatch(batch)
@@ -125,12 +145,60 @@ func (l *Listener) handleTelemetry(w http.ResponseWriter, r *http.Request) {
 		flushRequested = flushRequested || flush
 	}
 
+	l.debugf("batch parsed: buffered=%d bytes=%d runtimeDone=%v",
+		l.buffer.Len(), l.buffer.SizeBytes(), flushRequested)
+
 	w.WriteHeader(http.StatusOK)
 
-	// runtimeDone means the handler has returned and the sandbox may be frozen
-	// before the next tick, so this flush cannot wait for the timer.
-	if flushRequested && l.buffer.SizeBytes() > 0 {
-		l.flushLogged("runtimeDone")
+	// Signal only - the flush deliberately does NOT happen here.
+	//
+	// This handler runs on the HTTP server goroutine. Uploading from it races
+	// the event loop: the loop stops waiting, calls /event/next, and Lambda
+	// freezes the environment with the S3 request still in flight, so the
+	// object is never written and nothing reports an error. The event loop
+	// owns the flush instead, because it is what holds the invocation open.
+	if flushRequested {
+		select {
+		case l.runtimeDone <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// AwaitRuntimeDone blocks until the Telemetry API reports that the current
+// invocation finished, or until the timeout elapses. It reports whether the
+// signal arrived.
+//
+// This is what keeps the log shipping honest. Lambda freezes the execution
+// environment as soon as the runtime has responded AND every extension has
+// called /event/next. An extension that calls it immediately is frozen before
+// the Telemetry API delivers that invocation's records, so the logs sit in the
+// platform buffer until the environment thaws again - the next invocation, or
+// shutdown. On a busy function that merely delays delivery by one invocation;
+// on a quiet one the logs can be minutes late, and a final invocation before
+// an idle shutdown is only saved by the shutdown flush.
+//
+// Waiting costs billed duration, since Lambda bills until the last extension
+// releases the invocation. A zero timeout opts out and restores the older
+// deliver-on-next-invocation behaviour.
+func (l *Listener) AwaitRuntimeDone(timeout time.Duration) bool {
+	if timeout <= 0 {
+		return false
+	}
+	// A signal already buffered is honoured rather than discarded: the
+	// Telemetry API often delivers before the loop gets here, and throwing it
+	// away would burn the whole timeout and then flush anyway. Returning early
+	// costs nothing, because the caller flushes whatever is buffered either
+	// way.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-l.runtimeDone:
+		return true
+	case <-timer.C:
+		l.debugf("timed out after %s waiting for runtimeDone", timeout)
+		return false
 	}
 }
 

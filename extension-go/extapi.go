@@ -100,6 +100,36 @@ func registerOnce(extensionName string) (string, error) {
 	return id, nil
 }
 
+// buildSubscribeRequest describes where and how Lambda should deliver
+// telemetry.
+//
+// The destination host MUST be "sandbox.localdomain". Plain "sandbox" does not
+// resolve: Lambda accepts the subscription, then silently fails every delivery
+// and retries with backoff forever, so the extension looks healthy while
+// receiving nothing. See
+// https://docs.aws.amazon.com/lambda/latest/dg/telemetry-api.html
+func buildSubscribeRequest(cfg *Config) subscribeRequest {
+	// Deliberately not subscribing to "extension": that stream carries the
+	// stdout of this extension, which would feed its own output back into its
+	// own buffer.
+	return subscribeRequest{
+		SchemaVersion: "2022-12-13",
+		Types:         []string{"platform", "function"},
+		Buffering: bufferingConfig{
+			MaxItems: 10000,
+			MaxBytes: 1024 * 1024,
+			// Short, because the event loop blocks on runtimeDone before
+			// releasing the sandbox: every millisecond here is billed duration
+			// added to the invocation. The documented minimum is 25.
+			TimeoutMs: 200,
+		},
+		Destination: destination{
+			Protocol: "HTTP",
+			URI:      fmt.Sprintf("http://sandbox.localdomain:%s", cfg.TelemetryPort),
+		},
+	}
+}
+
 // subscribeTelemetry asks the Telemetry API to POST batches to the local
 // listener.
 //
@@ -109,24 +139,7 @@ func registerOnce(extensionName string) (string, error) {
 func subscribeTelemetry(extensionID string, cfg *Config) error {
 	url := fmt.Sprintf("http://%s/2022-07-01/telemetry", runtimeAPI)
 
-	// Deliberately not subscribing to "extension": that stream carries the
-	// stdout of this extension, which would feed its own output back into its
-	// own buffer.
-	sub := subscribeRequest{
-		SchemaVersion: "2022-12-13",
-		Types:         []string{"platform", "function"},
-		Buffering: bufferingConfig{
-			MaxItems:  10000,
-			MaxBytes:  1024 * 1024,
-			TimeoutMs: 1000,
-		},
-		Destination: destination{
-			Protocol: "HTTP",
-			URI:      fmt.Sprintf("http://sandbox:%s", cfg.TelemetryPort),
-		},
-	}
-
-	data, err := json.Marshal(sub)
+	data, err := json.Marshal(buildSubscribeRequest(cfg))
 	if err != nil {
 		return err
 	}

@@ -62,6 +62,7 @@ const (
 	envCompression     = "LOG_TO_S3_COMPRESSION"
 	envPlatformReport  = "LOG_TO_S3_INCLUDE_PLATFORM_REPORT"
 	envDebug           = "LOG_TO_S3_DEBUG"
+	envRuntimeDoneWait = "LOG_TO_S3_RUNTIME_DONE_WAIT_MS"
 
 	// Names used by the pre-extraction version of this extension. Honoured so
 	// an in-place upgrade does not need a simultaneous env-var change.
@@ -70,13 +71,18 @@ const (
 )
 
 type Config struct {
-	Bucket                string
-	Prefix                string
-	Level                 Level
-	FlushInterval         time.Duration
-	MaxBufferBytes        int
-	TelemetryPort         string
-	Compression           string
+	Bucket         string
+	Prefix         string
+	Level          Level
+	FlushInterval  time.Duration
+	MaxBufferBytes int
+	TelemetryPort  string
+	Compression    string
+
+	// RuntimeDoneWait is how long the event loop holds the sandbox open after
+	// an invocation, waiting for the Telemetry API to deliver that
+	// invocation's records. Zero opts out; see Listener.AwaitRuntimeDone.
+	RuntimeDoneWait       time.Duration
 	IncludePlatformReport bool
 	Debug                 bool
 
@@ -98,6 +104,7 @@ func loadConfig() (*Config, []string) {
 		FlushInterval:         15 * time.Second,
 		MaxBufferBytes:        10 * 1024 * 1024,
 		TelemetryPort:         getEnv(envTelemetryPort, "2020"),
+		RuntimeDoneWait:       time.Second,
 		Compression:           "snappy",
 		IncludePlatformReport: true,
 		FunctionName:          os.Getenv("AWS_LAMBDA_FUNCTION_NAME"),
@@ -147,6 +154,14 @@ func loadConfig() (*Config, []string) {
 			cfg.IncludePlatformReport = b
 		} else {
 			warn = append(warn, fmt.Sprintf("%s=%q is not a boolean, using true", envPlatformReport, raw))
+		}
+	}
+
+	if raw := os.Getenv(envRuntimeDoneWait); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			cfg.RuntimeDoneWait = time.Duration(n) * time.Millisecond
+		} else {
+			warn = append(warn, fmt.Sprintf("%s=%q is not a non-negative integer, using %s", envRuntimeDoneWait, raw, cfg.RuntimeDoneWait))
 		}
 	}
 

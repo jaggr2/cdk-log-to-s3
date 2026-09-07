@@ -3455,6 +3455,7 @@ const logToS3ExtensionProps: LogToS3ExtensionProps = { ... }
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.logLevel">logLevel</a></code> | <code><a href="#@jaggr2/cdk-log-to-s3.LogLevel">LogLevel</a></code> | Records below this level are dropped before being buffered. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.maxBufferSize">maxBufferSize</a></code> | <code>aws-cdk-lib.Size</code> | Buffer size that triggers a flush. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.removalPolicy">removalPolicy</a></code> | <code>aws-cdk-lib.RemovalPolicy</code> | *No description.* |
+| <code><a href="#@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.runtimeDoneWait">runtimeDoneWait</a></code> | <code>aws-cdk-lib.Duration</code> | How long the extension holds the invocation open after your handler returns, waiting for Lambda to deliver that invocation's telemetry. |
 | <code><a href="#@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.telemetryPort">telemetryPort</a></code> | <code>number</code> | Port the extension listens on for the Telemetry API. |
 
 ---
@@ -3638,6 +3639,29 @@ public readonly removalPolicy: RemovalPolicy;
 
 - *Type:* aws-cdk-lib.RemovalPolicy
 - *Default:* RemovalPolicy.DESTROY
+
+---
+
+##### `runtimeDoneWait`<sup>Optional</sup> <a name="runtimeDoneWait" id="@jaggr2/cdk-log-to-s3.LogToS3ExtensionProps.property.runtimeDoneWait"></a>
+
+```typescript
+public readonly runtimeDoneWait: Duration;
+```
+
+- *Type:* aws-cdk-lib.Duration
+- *Default:* Duration.seconds(1)
+
+How long the extension holds the invocation open after your handler returns, waiting for Lambda to deliver that invocation's telemetry.
+
+Lambda freezes the execution environment as soon as the runtime has
+responded and every extension has released the invocation. Releasing
+immediately means the records are still in the platform buffer, and they
+stay there until the environment thaws again - one invocation late on a
+busy function, minutes late on a quiet one.
+
+This wait is billed duration, so it is a real trade: correctness and
+freshness against a little cost. `Duration.millis(0)` opts out and
+restores deliver-on-next-invocation.
 
 ---
 
