@@ -20,7 +20,9 @@ until its telemetry has been written, which adds roughly **200-400 ms of
 billed duration** per invocation. That is the price of logs that are on S3
 when the handler returns rather than whenever the sandbox next thaws. Set
 `runtimeDoneWait: Duration.millis(0)` to opt out and deliver each
-invocation's logs on the following one instead.
+invocation's logs on the following one instead. See [Cost](#cost) for
+whether that duration tax is actually cheaper than the CloudWatch bill it
+replaces.
 
 ```bash
 npm install @jaggr2/cdk-log-to-s3
@@ -230,6 +232,44 @@ next run to finish the deletion rather than merge the same rows twice. The
 output key is a hash of the exact source set, so a repeated write is idempotent.
 (The manifest is hidden from Athena by its leading underscore, the same
 convention that keeps Hadoop `_SUCCESS` files out of query results.)
+
+## Cost
+
+The 200-400 ms of extra billed duration (see [Quick start](#quick-start)) is
+*all* this extension costs. Worked example at on-demand x86 Lambda pricing
+($0.0000166667/GB-s):
+
+| Memory | +300 ms | +400 ms |
+|---|---|---|
+| 512 MB | $2.50 / 1M invocations | $3.33 / 1M invocations |
+| 1024 MB | $5.00 / 1M invocations | $6.67 / 1M invocations |
+
+The S3 side is separate and is the "cents a month" claim at the top of this
+file - `LogBucket` tiers to Infrequent Access at 30 days and Glacier at 90,
+regardless of how long you keep the data.
+
+Compare that to leaving the same logs in CloudWatch, which bills ingestion
+once ($0.50/GB) and then storage every month the data sits there
+($0.03/GB-month). At this construct's own two reference retention periods:
+
+| Retention | Cost per KB of logs, per 1M invocations |
+|---|---|
+| 180 days (`LogBucket`'s default `expireAfter`) | $0.68 |
+| 730 days (`LogAnalytics`'s default `projectionWindow`) | $1.22 |
+
+Dividing the duration cost by the CloudWatch cost gives the crossover: past
+roughly **4-10 KB of logs per invocation at 180 days**, or **2-5 KB at 730
+days** (the range is the memory/duration spread above), CloudWatch costs more
+to ingest and retain than this extension costs to run - a handful of
+structured lines with `context` and a `stack_trace` gets there easily. A
+near-silent function does not, and on this narrow duration-vs-ingestion
+comparison alone CloudWatch may come out ahead for it.
+
+The bigger gap shows up in practice rather than in this table: CloudWatch log
+group retention is opt-in, commonly left unset, and "unset" means *Never
+Expire* - a bill that grows for as long as the function exists. `LogBucket`'s
+lifecycle is explicit and bounded by construction; there is no unset state
+that quietly costs more every month.
 
 ## Development
 
